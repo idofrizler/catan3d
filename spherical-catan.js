@@ -491,8 +491,20 @@ class SphericalCatan {
     canvas.width = 64;
     canvas.height = 64;
     
-    // Draw the vertex index
+    // Clear the canvas
+    context.clearRect(0, 0, 64, 64);
+    
+    // Draw a white circle with black border
+    context.beginPath();
+    context.arc(32, 32, 24, 0, Math.PI * 2);
     context.fillStyle = 'white';
+    context.fill();
+    context.strokeStyle = 'black';
+    context.lineWidth = 2;
+    context.stroke();
+    
+    // Draw the vertex index
+    context.fillStyle = 'black';
     context.font = 'bold 24px Arial';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
@@ -537,7 +549,19 @@ class SphericalCatan {
     ];
     this.shuffle(allResources);
     
+    // Create dice number distribution (3 of each number 2-12, excluding 7)
+    const diceNumbers = [];
+    for (let num = 2; num <= 12; num++) {
+      if (num !== 7) {
+        for (let i = 0; i < 3; i++) {
+          diceNumbers.push(num);
+        }
+      }
+    }
+    this.shuffle(diceNumbers);
+    
     let tileCount = 0;
+    let diceIndex = 0;
     this.faceObjects = [];  // Store faces for interaction
     
     // Create meshes for each face using the pre-identified faces
@@ -585,8 +609,6 @@ class SphericalCatan {
       
       const material = new this.THREE.MeshPhongMaterial({
         color: color || 0x808080, // Fallback to gray if color is undefined
-        transparent: true,
-        opacity: face.type === 'pentagon' ? 0.8 : 0.7,
         side: this.THREE.DoubleSide,
         shininess: face.type === 'pentagon' ? 30 : 10
       });
@@ -606,6 +628,46 @@ class SphericalCatan {
       this.scene.add(mesh);
       this.faceObjects.push(mesh);
       
+      // Add dice number if not a desert
+      if (resourceType !== 'desert') {
+        // Create a plane geometry for the number
+        const numberGeometry = new this.THREE.PlaneGeometry(0.8, 0.8);
+        
+        // Create canvas for the number
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = 64;
+        canvas.height = 64;
+        
+        // Draw the number with a black background
+        context.fillStyle = 'black';
+        context.fillRect(0, 0, 64, 64);
+        context.fillStyle = 'white';
+        context.font = 'bold 48px Arial';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(diceNumbers[diceIndex].toString(), 32, 32);
+        
+        // Create texture and material
+        const texture = new this.THREE.CanvasTexture(canvas);
+        const numberMaterial = new this.THREE.MeshBasicMaterial({
+          map: texture,
+          side: this.THREE.DoubleSide
+        });
+        
+        // Create mesh for the number
+        const numberMesh = new this.THREE.Mesh(numberGeometry, numberMaterial);
+        numberMesh.position.copy(center.normalize().multiplyScalar(4.1)); // Move very slightly outward
+        
+        // Make the number face outward and fix mirroring
+        numberMesh.lookAt(new this.THREE.Vector3(0, 0, 0));
+        numberMesh.rotateY(Math.PI); // Fix mirroring by rotating 180 degrees
+        
+        this.scene.add(numberMesh);
+        mesh.userData.diceValue = diceNumbers[diceIndex];
+        diceIndex++;
+      }
+      
       // Log face creation for debugging
       console.log(`Created ${face.type} face ${faceIndex} with resource ${resourceType} (color: ${color ? color.toString(16) : 'undefined'})`);
       tileCount++;
@@ -614,6 +676,7 @@ class SphericalCatan {
     // Verify counts
     console.log(`Created ${tileCount} total tiles`);
     console.log(`Total faces: ${this.faceObjects.length}`);
+    console.log(`Assigned ${diceIndex} dice numbers`);
   }
   
   addDiceValueIndicators() {
@@ -700,10 +763,15 @@ class SphericalCatan {
       
       // Reset previous face hover state
       if (hoveredFace && (!faceIntersects.length || faceIntersects[0].object !== hoveredFace)) {
-        if (!hoveredFace.userData.isSelected) {
-          hoveredFace.material.color.setHex(hoveredFace.userData.defaultColor);
-          hoveredFace.material.opacity = 0.7;
-        }
+        // Reset edges of previous face
+        this.edgeObjects.forEach(edge => {
+          if (hoveredFace.userData.vertices.includes(edge.userData.v1) && 
+              hoveredFace.userData.vertices.includes(edge.userData.v2)) {
+            if (!hoveredFace.userData.isSelected) {
+              edge.material.linewidth = 2;
+            }
+          }
+        });
         hoveredFace = null;
       }
       
@@ -714,8 +782,8 @@ class SphericalCatan {
       if (hoveredEdge && (!edgeIntersects.length || edgeIntersects[0].object !== hoveredEdge)) {
         if (!hoveredEdge.userData.isSelected) {
           hoveredEdge.material.color.setHex(hoveredEdge.userData.defaultColor);
+          hoveredEdge.material.linewidth = 2;
         }
-        hoveredEdge.material.linewidth = 2;
         // Hide vertex labels
         hoveredEdge.children.forEach(child => {
           if (child instanceof this.THREE.Sprite) {
@@ -729,17 +797,23 @@ class SphericalCatan {
       if (faceIntersects.length > 0 && 
           (!edgeIntersects.length || edgeIntersects[0].distance > faceIntersects[0].distance + 0.1)) {
         const face = faceIntersects[0].object;
-        if (!face.userData.isSelected) {
-          face.material.color.setHex(0x00FF00); // Hover color: green
-          face.material.opacity = 0.9;
-        }
         hoveredFace = face;
+        
+        // Highlight edges of the hovered face
+        this.edgeObjects.forEach(edge => {
+          if (face.userData.vertices.includes(edge.userData.v1) && 
+              face.userData.vertices.includes(edge.userData.v2)) {
+            if (!edge.userData.isSelected) {
+              edge.material.linewidth = 3;
+            }
+          }
+        });
       } else if (edgeIntersects.length > 0) {
         const edge = edgeIntersects[0].object;
         if (!edge.userData.isSelected) {
           edge.material.color.setHex(0x00FF00); // Hover color: green
+          edge.material.linewidth = 3;
         }
-        edge.material.linewidth = 3;
         // Show vertex labels
         edge.children.forEach(child => {
           if (child instanceof this.THREE.Sprite) {
@@ -771,19 +845,26 @@ class SphericalCatan {
           (!edgeIntersects.length || edgeIntersects[0].distance > faceIntersects[0].distance + 0.1)) {
         const face = faceIntersects[0].object;
         
-        // Reset all other faces
-        this.faceObjects.forEach(f => {
-          if (f !== face) {
-            f.material.color.setHex(f.userData.defaultColor);
-            f.material.opacity = 0.7;
-            f.userData.isSelected = false;
+        // Reset all other faces' edges
+        this.edgeObjects.forEach(edge => {
+          if (!face.userData.vertices.includes(edge.userData.v1) || 
+              !face.userData.vertices.includes(edge.userData.v2)) {
+            edge.material.linewidth = 2;
+            edge.userData.isSelected = false;
           }
         });
         
         // Toggle selected state
         face.userData.isSelected = !face.userData.isSelected;
-        face.material.color.setHex(face.userData.isSelected ? 0xFF0000 : face.userData.defaultColor);
-        face.material.opacity = face.userData.isSelected ? 0.9 : 0.7;
+        
+        // Highlight edges of the selected face
+        this.edgeObjects.forEach(edge => {
+          if (face.userData.vertices.includes(edge.userData.v1) && 
+              face.userData.vertices.includes(edge.userData.v2)) {
+            edge.material.linewidth = face.userData.isSelected ? 4 : 2;
+            edge.userData.isSelected = face.userData.isSelected;
+          }
+        });
         
         // Log face information
         console.log(`Face ${face.userData.faceIndex}:`);
