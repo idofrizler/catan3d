@@ -10,6 +10,10 @@ class SphericalCatan {
     this.resourceTypes = ['wood', 'brick', 'wheat', 'sheep', 'ore', 'desert'];
     this.diceValues = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12];
     
+    // Constants for geometry
+    this.CORRECT_EDGE_LENGTH = 1.7525; // Edge length for the truncated icosahedron
+    this.EDGE_TOLERANCE = 0.01; // Tolerance for edge length comparison
+    
     // Store THREE reference
     this.THREE = THREE;
     
@@ -209,8 +213,7 @@ class SphericalCatan {
     
     // Second pass: create edges between hexagon vertices
     const edges = new Set();
-    const CORRECT_EDGE_LENGTH = 1.7525; // Length of edge in truncated icosahedron
-    const TOLERANCE = 0.01;
+    const TOLERANCE = this.EDGE_TOLERANCE;
     
     // Helper function to get the other vertex of an edge
     const getOtherVertex = (edge, vertex) => {
@@ -219,7 +222,7 @@ class SphericalCatan {
     };
     
     console.log('\n=== Edge Creation ===');
-    console.log(`Looking for edges with length ${CORRECT_EDGE_LENGTH} ± ${TOLERANCE}`);
+    console.log(`Looking for edges with length ${this.CORRECT_EDGE_LENGTH} ± ${TOLERANCE}`);
     
     // First, find all edges between hexagon vertices
     const allEdges = new Set();
@@ -229,7 +232,7 @@ class SphericalCatan {
         const v2 = mergedVertices[j];
         const distance = v1.distanceTo(v2);
         
-        if (Math.abs(distance - CORRECT_EDGE_LENGTH) < TOLERANCE) {
+        if (Math.abs(distance - this.CORRECT_EDGE_LENGTH) < TOLERANCE) {
           const edgeKey = `${Math.min(i, j)},${Math.max(i, j)}`;
           allEdges.add(edgeKey);
         }
@@ -339,12 +342,12 @@ class SphericalCatan {
         }
         
         newFaces.push({
-          type: 'pentagon',
+            type: 'pentagon',
           vertices: faceVertices,
           indices: this.createPolygonIndices(faceVertices)
-        });
+          });
+        }
       }
-    }
     
     console.log('\n=== Final Results ===');
     console.log(`Found ${pentagonCount} pentagons`);
@@ -437,9 +440,8 @@ class SphericalCatan {
     // Store edges for interaction
     this.edgeObjects = [];
     
-    // The correct edge length for a truncated icosahedron (with radius 5)
-    const CORRECT_EDGE_LENGTH = 2.018;
-    const TOLERANCE = 0.01; // Allow for small floating point differences
+    // Use class property instead of defining a new local constant
+    const TOLERANCE = this.EDGE_TOLERANCE;
     
     // For each vertex, find its valid neighbors
     for (let i = 0; i < this.truncatedVertices.length; i++) {
@@ -449,32 +451,64 @@ class SphericalCatan {
         const distance = v1.distanceTo(v2);
         
         // Only create edge if vertices are the correct distance apart
-        if (Math.abs(distance - CORRECT_EDGE_LENGTH) < TOLERANCE) {
+        if (Math.abs(distance - this.CORRECT_EDGE_LENGTH) < TOLERANCE) {
           const edgeKey = `${Math.min(i, j)},${Math.max(i, j)}`;
           
           if (!addedEdges.has(edgeKey)) {
-            const edgeGeometry = new this.THREE.BufferGeometry().setFromPoints([v1, v2]);
-            const edgeMaterial = new this.THREE.LineBasicMaterial({ 
+            // Create slightly elevated vertices to ensure edges appear above faces
+            const elevationFactor = 1.005; // 0.5% higher than faces
+            const elevatedV1 = v1.clone().multiplyScalar(elevationFactor);
+            const elevatedV2 = v2.clone().multiplyScalar(elevationFactor);
+            
+            // Create a cylinder between the two points to represent the edge
+            // Direction from v1 to v2
+            const direction = new this.THREE.Vector3().subVectors(elevatedV2, elevatedV1);
+            const length = direction.length();
+            
+            // Create a cylinder with small radius (thin line)
+            // The cylinder's default orientation is along the Y axis
+            const normalEdgeRadius = 0.03; // Normal width
+            const selectedEdgeRadius = 0.06; // Width when selected
+            const edgeGeometry = new this.THREE.CylinderGeometry(
+              normalEdgeRadius, normalEdgeRadius, length, 8, 1
+            );
+            
+            // Shift the cylinder so its center is at the origin and it extends along the Y axis
+            edgeGeometry.translate(0, length / 2, 0);
+            
+            // Create the mesh with the geometry
+            const edgeMaterial = new this.THREE.MeshBasicMaterial({
               color: 0xFFFFFF,
-              linewidth: 2,
-              opacity: 0.8,
-              transparent: true
+              opacity: 1.0,
+              transparent: false
             });
             
-            const edge = new this.THREE.Line(edgeGeometry, edgeMaterial);
+            const edge = new this.THREE.Mesh(edgeGeometry, edgeMaterial);
+            edge.renderOrder = 1;
+            
+            // Store original info for selection and highlighting
             edge.userData = {
               type: 'edge',
               v1: i,
               v2: j,
               defaultColor: 0xFFFFFF,
-              isSelected: false
+              isSelected: false,
+              normalRadius: normalEdgeRadius,
+              selectedRadius: selectedEdgeRadius
             };
             
-            // Add vertex labels
-            const label1 = this.createVertexLabel(i, v1);
-            const label2 = this.createVertexLabel(j, v2);
-            edge.add(label1);
-            edge.add(label2);
+            // Position and orient the cylinder
+            // First position at v1
+            edge.position.copy(elevatedV1);
+            
+            // Then orient along the direction from v1 to v2
+            // We need to find the rotation that takes us from the Y axis to our direction vector
+            const yAxis = new this.THREE.Vector3(0, 1, 0);
+            direction.normalize();
+            
+            // Get quaternion rotation from Y axis to direction
+            const quaternion = new this.THREE.Quaternion().setFromUnitVectors(yAxis, direction);
+            edge.quaternion.copy(quaternion);
             
             this.scene.add(edge);
             this.edgeObjects.push(edge);
@@ -740,6 +774,7 @@ class SphericalCatan {
     const mouse = new this.THREE.Vector2();
     let hoveredEdge = null;
     let hoveredFace = null;
+    let selectedFace = null;
     
     // Update mouse position
     const updateMousePosition = (event) => {
@@ -756,22 +791,37 @@ class SphericalCatan {
       raycaster.setFromCamera(mouse, this.camera);
       
       // Adjust raycaster parameters to favor faces over edges
-      raycaster.params.Line.threshold = 0.05; // Make edge detection more precise/difficult
+      raycaster.params.Line.threshold = 0.05;
       
       // Check for face intersections first
       const faceIntersects = raycaster.intersectObjects(this.faceObjects);
       
       // Reset previous face hover state
       if (hoveredFace && (!faceIntersects.length || faceIntersects[0].object !== hoveredFace)) {
-        // Reset edges of previous face
-        this.edgeObjects.forEach(edge => {
-          if (hoveredFace.userData.vertices.includes(edge.userData.v1) && 
-              hoveredFace.userData.vertices.includes(edge.userData.v2)) {
-            if (!hoveredFace.userData.isSelected) {
-              edge.material.linewidth = 2;
+        // Reset edges of previous face if not the selected face
+        if (hoveredFace !== selectedFace) {
+          this.edgeObjects.forEach(edge => {
+            if (hoveredFace.userData.vertices.includes(edge.userData.v1) && 
+                hoveredFace.userData.vertices.includes(edge.userData.v2)) {
+              // Only reset if it's not part of the selected face
+              if (!selectedFace || 
+                 !(selectedFace.userData.vertices.includes(edge.userData.v1) && 
+                   selectedFace.userData.vertices.includes(edge.userData.v2))) {
+                // Reset to normal radius
+                const geometry = edge.geometry;
+                geometry.dispose();
+                const newGeometry = new this.THREE.CylinderGeometry(
+                  edge.userData.normalRadius,
+                  edge.userData.normalRadius,
+                  geometry.parameters.height,
+                  8, 1
+                );
+                newGeometry.translate(0, geometry.parameters.height / 2, 0);
+                edge.geometry = newGeometry;
+              }
             }
-          }
-        });
+          });
+        }
         hoveredFace = null;
       }
       
@@ -780,16 +830,24 @@ class SphericalCatan {
       
       // Reset previous edge hover state
       if (hoveredEdge && (!edgeIntersects.length || edgeIntersects[0].object !== hoveredEdge)) {
-        if (!hoveredEdge.userData.isSelected) {
+        // Only reset if not part of the selected face
+        if (!selectedFace || 
+            !(selectedFace.userData.vertices.includes(hoveredEdge.userData.v1) && 
+              selectedFace.userData.vertices.includes(hoveredEdge.userData.v2))) {
           hoveredEdge.material.color.setHex(hoveredEdge.userData.defaultColor);
-          hoveredEdge.material.linewidth = 2;
+          
+          // Reset to normal radius
+          const geometry = hoveredEdge.geometry;
+          geometry.dispose();
+          const newGeometry = new this.THREE.CylinderGeometry(
+            hoveredEdge.userData.normalRadius,
+            hoveredEdge.userData.normalRadius,
+            geometry.parameters.height,
+            8, 1
+          );
+          newGeometry.translate(0, geometry.parameters.height / 2, 0);
+          hoveredEdge.geometry = newGeometry;
         }
-        // Hide vertex labels
-        hoveredEdge.children.forEach(child => {
-          if (child instanceof this.THREE.Sprite) {
-            child.visible = false;
-          }
-        });
         hoveredEdge = null;
       }
       
@@ -799,27 +857,52 @@ class SphericalCatan {
         const face = faceIntersects[0].object;
         hoveredFace = face;
         
-        // Highlight edges of the hovered face
+        // Highlight edges of the hovered face but don't override selected face edges
         this.edgeObjects.forEach(edge => {
           if (face.userData.vertices.includes(edge.userData.v1) && 
               face.userData.vertices.includes(edge.userData.v2)) {
-            if (!edge.userData.isSelected) {
-              edge.material.linewidth = 3;
+            // Don't override selected face edges
+            if (!selectedFace || 
+                !(selectedFace.userData.vertices.includes(edge.userData.v1) && 
+                  selectedFace.userData.vertices.includes(edge.userData.v2))) {
+              // Increase radius for highlight
+              const geometry = edge.geometry;
+              const height = geometry.parameters.height;
+              geometry.dispose();
+              const newGeometry = new this.THREE.CylinderGeometry(
+                edge.userData.normalRadius * 1.5, // 50% wider for hover
+                edge.userData.normalRadius * 1.5,
+                height,
+                8, 1
+              );
+              newGeometry.translate(0, height / 2, 0);
+              edge.geometry = newGeometry;
             }
           }
         });
       } else if (edgeIntersects.length > 0) {
         const edge = edgeIntersects[0].object;
-        if (!edge.userData.isSelected) {
+        
+        // Only change appearance if not part of the selected face
+        if (!selectedFace || 
+            !(selectedFace.userData.vertices.includes(edge.userData.v1) && 
+              selectedFace.userData.vertices.includes(edge.userData.v2))) {
           edge.material.color.setHex(0x00FF00); // Hover color: green
-          edge.material.linewidth = 3;
+          
+          // Increase radius for highlight
+          const geometry = edge.geometry;
+          const height = geometry.parameters.height;
+          geometry.dispose();
+          const newGeometry = new this.THREE.CylinderGeometry(
+            edge.userData.normalRadius * 1.5, // 50% wider for hover
+            edge.userData.normalRadius * 1.5,
+            height,
+            8, 1
+          );
+          newGeometry.translate(0, height / 2, 0);
+          edge.geometry = newGeometry;
         }
-        // Show vertex labels
-        edge.children.forEach(child => {
-          if (child instanceof this.THREE.Sprite) {
-            child.visible = true;
-          }
-        });
+        
         hoveredEdge = edge;
         
         // Log vertex information
@@ -845,26 +928,64 @@ class SphericalCatan {
           (!edgeIntersects.length || edgeIntersects[0].distance > faceIntersects[0].distance + 0.1)) {
         const face = faceIntersects[0].object;
         
-        // Reset all other faces' edges
+        // Reset all edges to normal state
         this.edgeObjects.forEach(edge => {
+          edge.material.color.setHex(edge.userData.defaultColor);
+          
+          // Reset to normal radius if not part of the newly selected face
           if (!face.userData.vertices.includes(edge.userData.v1) || 
               !face.userData.vertices.includes(edge.userData.v2)) {
-            edge.material.linewidth = 2;
-            edge.userData.isSelected = false;
+            const geometry = edge.geometry;
+            const height = geometry.parameters.height;
+            geometry.dispose();
+            const newGeometry = new this.THREE.CylinderGeometry(
+              edge.userData.normalRadius,
+              edge.userData.normalRadius,
+              height,
+              8, 1
+            );
+            newGeometry.translate(0, height / 2, 0);
+            edge.geometry = newGeometry;
           }
         });
+        
+        // Clear previous selected face
+        if (selectedFace && selectedFace !== face) {
+          selectedFace.userData.isSelected = false;
+        }
         
         // Toggle selected state
         face.userData.isSelected = !face.userData.isSelected;
         
-        // Highlight edges of the selected face
-        this.edgeObjects.forEach(edge => {
-          if (face.userData.vertices.includes(edge.userData.v1) && 
-              face.userData.vertices.includes(edge.userData.v2)) {
-            edge.material.linewidth = face.userData.isSelected ? 4 : 2;
-            edge.userData.isSelected = face.userData.isSelected;
-          }
-        });
+        // Update selected face reference
+        if (face.userData.isSelected) {
+          selectedFace = face;
+          
+          // Highlight edges of the selected face with bold white lines
+          this.edgeObjects.forEach(edge => {
+            if (face.userData.vertices.includes(edge.userData.v1) && 
+                face.userData.vertices.includes(edge.userData.v2)) {
+              // Make edges bolder by increasing cylinder radius
+              const geometry = edge.geometry;
+              const height = geometry.parameters.height;
+              geometry.dispose();
+              const newGeometry = new this.THREE.CylinderGeometry(
+                edge.userData.selectedRadius, // Use the selected radius
+                edge.userData.selectedRadius,
+                height,
+                8, 1
+              );
+              newGeometry.translate(0, height / 2, 0);
+              edge.geometry = newGeometry;
+              
+              // Ensure they're white and render on top
+              edge.material.color.setHex(0x2222FF);
+              edge.renderOrder = 2;
+            }
+          });
+        } else {
+          selectedFace = null;
+        }
         
         // Log face information
         console.log(`Face ${face.userData.faceIndex}:`);
@@ -874,17 +995,48 @@ class SphericalCatan {
       } else if (edgeIntersects.length > 0) {
         const edge = edgeIntersects[0].object;
         
-        // Reset all other edges
+        // Reset all edges that are not part of the selected face
         this.edgeObjects.forEach(e => {
-          if (e !== edge) {
+          if (!selectedFace || 
+              !(selectedFace.userData.vertices.includes(e.userData.v1) && 
+                selectedFace.userData.vertices.includes(e.userData.v2))) {
             e.material.color.setHex(e.userData.defaultColor);
-            e.userData.isSelected = false;
+            
+            // Reset to normal radius
+            const geometry = e.geometry;
+            const height = geometry.parameters.height;
+            geometry.dispose();
+            const newGeometry = new this.THREE.CylinderGeometry(
+              e.userData.normalRadius,
+              e.userData.normalRadius,
+              height,
+              8, 1
+            );
+            newGeometry.translate(0, height / 2, 0);
+            e.geometry = newGeometry;
           }
         });
         
-        // Toggle selected state
-        edge.userData.isSelected = !edge.userData.isSelected;
-        edge.material.color.setHex(edge.userData.isSelected ? 0xFF0000 : edge.userData.defaultColor);
+        // Toggle selected state only if not part of selected face
+        if (!selectedFace || 
+            !(selectedFace.userData.vertices.includes(edge.userData.v1) && 
+              selectedFace.userData.vertices.includes(edge.userData.v2))) {
+          edge.userData.isSelected = !edge.userData.isSelected;
+          edge.material.color.setHex(edge.userData.isSelected ? 0xFF0000 : edge.userData.defaultColor);
+          
+          // Update radius based on selection state
+          const geometry = edge.geometry;
+          const height = geometry.parameters.height;
+          geometry.dispose();
+          const newGeometry = new this.THREE.CylinderGeometry(
+            edge.userData.isSelected ? edge.userData.selectedRadius : edge.userData.normalRadius,
+            edge.userData.isSelected ? edge.userData.selectedRadius : edge.userData.normalRadius,
+            height,
+            8, 1
+          );
+          newGeometry.translate(0, height / 2, 0);
+          edge.geometry = newGeometry;
+        }
         
         // Log edge information
         const v1 = edge.userData.v1;
