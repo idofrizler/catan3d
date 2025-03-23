@@ -64,10 +64,13 @@ class SphericalCatan {
     this.setupEventListeners();
   }
   
-  truncateIcosahedron(geometry) {
-    // Get the original vertices and faces
-    const positions = geometry.attributes.position;
+  createBoard() {
+    const radius = 5;
+    const geometry = new this.THREE.IcosahedronGeometry(radius);
+    
+    // Store original vertices before truncation
     const originalVertices = [];
+    const positions = geometry.attributes.position;
     for (let i = 0; i < positions.count; i++) {
       originalVertices.push(new this.THREE.Vector3(
         positions.getX(i),
@@ -76,271 +79,8 @@ class SphericalCatan {
       ));
     }
     
-    // Create new vertices for the truncated icosahedron
-    const newVertices = [];
-    const newFaces = [];
-    
-    // For each original vertex, create a pentagon
-    for (let i = 0; i < originalVertices.length; i++) {
-      const vertex = originalVertices[i];
-      const neighbors = this.findNeighbors(originalVertices, vertex);
-      
-      // Create pentagon vertices by truncating at 1/3 of the distance
-      const pentagonVertices = neighbors.map(neighbor => {
-        const direction = neighbor.clone().sub(vertex);
-        const distance = direction.length();
-        const truncatedPoint = vertex.clone().add(
-          direction.normalize().multiplyScalar(distance * 0.33)
-        );
-        return truncatedPoint;
-      });
-      
-      // Add pentagon face
-      const pentagonIndices = pentagonVertices.map(v => newVertices.length + newVertices.push(v) - 1);
-      newFaces.push({
-        type: 'pentagon',
-        vertices: pentagonIndices,
-        indices: this.createPolygonIndices(pentagonIndices)
-      });
-    }
-    
-    // For each original face, create a hexagon
-    const originalFaces = [];
-    for (let i = 0; i < positions.count; i += 3) {
-      originalFaces.push({
-        a: i,
-        b: i + 1,
-        c: i + 2
-      });
-    }
-    
-    for (const face of originalFaces) {
-      const v1 = originalVertices[face.a];
-      const v2 = originalVertices[face.b];
-      const v3 = originalVertices[face.c];
-      
-      // Create hexagon vertices by truncating at 1/3 of the distance
-      const hexagonVertices = [
-        this.truncatePoint(v1, v2, 0.33),
-        this.truncatePoint(v2, v1, 0.33),
-        this.truncatePoint(v2, v3, 0.33),
-        this.truncatePoint(v3, v2, 0.33),
-        this.truncatePoint(v3, v1, 0.33),
-        this.truncatePoint(v1, v3, 0.33)
-      ];
-      
-      // Add hexagon face
-      const hexagonIndices = hexagonVertices.map(v => newVertices.length + newVertices.push(v) - 1);
-      newFaces.push({
-        type: 'hexagon',
-        vertices: hexagonIndices,
-        indices: this.createPolygonIndices(hexagonIndices)
-      });
-    }
-    
-    // Update the geometry with new vertices and faces
-    const newPositions = new Float32Array(newVertices.length * 3);
-    for (let i = 0; i < newVertices.length; i++) {
-      newPositions[i * 3] = newVertices[i].x;
-      newPositions[i * 3 + 1] = newVertices[i].y;
-      newPositions[i * 3 + 2] = newVertices[i].z;
-    }
-    
-    // Create indices for all faces
-    const allIndices = [];
-    newFaces.forEach(face => {
-      allIndices.push(...face.indices);
-    });
-    
-    geometry.setAttribute('position', new this.THREE.BufferAttribute(newPositions, 3));
-    geometry.setIndex(allIndices);
-    geometry.computeVertexNormals();
-    
-    // Store face information for later use
-    this.faces = newFaces;
-  }
-  
-  createPolygonIndices(vertices) {
-    const indices = [];
-    // Create triangles for the polygon
-    for (let i = 1; i < vertices.length - 1; i++) {
-      indices.push(vertices[0], vertices[i], vertices[i + 1]);
-    }
-    return indices;
-  }
-  
-  findNeighbors(vertices, vertex) {
-    const neighbors = [];
-    for (const v of vertices) {
-      if (v !== vertex) {
-        const distance = v.distanceTo(vertex);
-        // Use a more precise threshold for finding neighbors
-        if (distance < 5.5) { // Adjusted threshold for icosahedron
-          neighbors.push(v);
-        }
-      }
-    }
-    return neighbors;
-  }
-  
-  truncatePoint(v1, v2, ratio = 0.33) {
-    const direction = v2.clone().sub(v1);
-    const distance = direction.length();
-    return v1.clone().add(
-      direction.normalize().multiplyScalar(distance * ratio)
-    );
-  }
-  
-  createBoard() {
-    const radius = 5;
-    const geometry = new this.THREE.BufferGeometry();
-    
-    // Define the vertices of a regular icosahedron
-    const t = (1 + Math.sqrt(5)) / 2; // Golden ratio
-    const icosahedronVertices = [
-      [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
-      [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
-      [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]
-    ].map(([x, y, z]) => new this.THREE.Vector3(x, y, z).normalize().multiplyScalar(radius));
-    
-    // Define the edges of the icosahedron
-    const icosahedronEdges = [
-      [0,1], [0,5], [0,7], [0,10], [0,11],
-      [1,5], [1,7], [1,8], [1,9],
-      [2,3], [2,4], [2,6], [2,10], [2,11],
-      [3,4], [3,6], [3,8], [3,9],
-      [4,5], [4,9], [4,11],
-      [5,9], [5,11],
-      [6,7], [6,8], [6,10],
-      [7,8], [7,10],
-      [8,9],
-      [10,11]
-    ];
-    
-    // Define the faces of the icosahedron
-    const icosahedronFaces = [
-      [0,1,5], [0,5,11], [0,11,10], [0,10,7], [0,7,1],
-      [1,7,8], [1,8,9], [1,9,5],
-      [2,3,4], [2,4,11], [2,11,10], [2,10,6], [2,6,3],
-      [3,6,8], [3,8,9], [3,9,4],
-      [4,9,5], [4,5,11],
-      [6,10,7], [6,7,8]
-    ];
-    
-    // Calculate all 60 vertices of the truncated icosahedron
-    const truncatedVertices = [];
-    const edgeToVertices = new Map(); // Map to store which vertices belong to which edge
-    
-    // For each edge of the icosahedron, create two vertices
-    icosahedronEdges.forEach(([v1Index, v2Index], edgeIndex) => {
-      const v1 = icosahedronVertices[v1Index];
-      const v2 = icosahedronVertices[v2Index];
-      
-      // Create two vertices at 1/3 and 2/3 along each edge
-      const vertex1 = v1.clone().lerp(v2, 1/3).normalize().multiplyScalar(radius);
-      const vertex2 = v1.clone().lerp(v2, 2/3).normalize().multiplyScalar(radius);
-      
-      const vertexIndex1 = truncatedVertices.length;
-      const vertexIndex2 = vertexIndex1 + 1;
-      truncatedVertices.push(vertex1, vertex2);
-      
-      // Store the mapping of original edge to new vertices
-      edgeToVertices.set(`${v1Index},${v2Index}`, [vertexIndex1, vertexIndex2]);
-      edgeToVertices.set(`${v2Index},${v1Index}`, [vertexIndex2, vertexIndex1]);
-    });
-    
-    // Identify pentagon and hexagon faces
-    this.faces = [];
-    
-    // Create pentagon faces (one around each original vertex)
-    icosahedronVertices.forEach((vertex, vertexIndex) => {
-      // Find all edges connected to this vertex
-      const connectedEdges = icosahedronEdges.filter(([v1, v2]) => v1 === vertexIndex || v2 === vertexIndex);
-      
-      // Skip if we don't have enough connected edges
-      if (connectedEdges.length < 5) return;
-      
-      // Get the vertices that form the pentagon in the correct order
-      const pentagonVertices = [];
-      const orderedEdges = [];
-      
-      // Start with the first edge
-      let currentEdge = connectedEdges[0];
-      let currentVertex = currentEdge[vertexIndex === currentEdge[0] ? 1 : 0];
-      orderedEdges.push(currentEdge);
-      
-      // Find the sequence of edges that form the pentagon
-      while (orderedEdges.length < 5) {
-        // Find the next edge that shares currentVertex
-        const nextEdge = connectedEdges.find(edge => {
-          if (orderedEdges.includes(edge)) return false;
-          return edge[0] === currentVertex || edge[1] === currentVertex;
-        });
-        
-        if (!nextEdge) break;
-        
-        orderedEdges.push(nextEdge);
-        currentVertex = nextEdge[0] === currentVertex ? nextEdge[1] : nextEdge[0];
-      }
-      
-      // Only proceed if we found all 5 edges
-      if (orderedEdges.length === 5) {
-        // Add vertices in order
-        orderedEdges.forEach((edge, i) => {
-          const edgeKey = `${Math.min(edge[0], edge[1])},${Math.max(edge[0], edge[1])}`;
-          const vertexPair = edgeToVertices.get(edgeKey);
-          
-          // For each edge, add the vertex that's closer to the center vertex
-          if (edge[0] === vertexIndex) {
-            pentagonVertices.push(vertexPair[0]);
-          } else {
-            pentagonVertices.push(vertexPair[1]);
-          }
-        });
-        
-        // Add pentagon face if we found all vertices
-        if (pentagonVertices.length === 5) {
-          this.faces.push({
-            type: 'pentagon',
-            vertices: pentagonVertices
-          });
-        }
-      }
-    });
-    
-    // Create hexagon faces (one for each original face)
-    icosahedronFaces.forEach(face => {
-      const [v1, v2, v3] = face;
-      const hexagonVertices = [];
-      
-      // Get the vertices from each edge of the face
-      const edge1Vertices = edgeToVertices.get(`${v1},${v2}`);
-      const edge2Vertices = edgeToVertices.get(`${v2},${v3}`);
-      const edge3Vertices = edgeToVertices.get(`${v3},${v1}`);
-      
-      hexagonVertices.push(
-        edge1Vertices[0], edge1Vertices[1],
-        edge2Vertices[0], edge2Vertices[1],
-        edge3Vertices[0], edge3Vertices[1]
-      );
-      
-      // Add hexagon face
-      this.faces.push({
-        type: 'hexagon',
-        vertices: hexagonVertices
-      });
-    });
-    
-    // Convert vertices to buffer attribute
-    const positionArray = new Float32Array(truncatedVertices.length * 3);
-    truncatedVertices.forEach((vertex, i) => {
-      positionArray[i * 3] = vertex.x;
-      positionArray[i * 3 + 1] = vertex.y;
-      positionArray[i * 3 + 2] = vertex.z;
-    });
-    
-    // Set up the geometry with vertices
-    geometry.setAttribute('position', new this.THREE.BufferAttribute(positionArray, 3));
+    // Truncate the icosahedron to create pentagons and hexagons
+    this.truncateIcosahedron(geometry);
     
     // Create points to visualize vertices
     const pointsMaterial = new this.THREE.PointsMaterial({ 
@@ -353,11 +93,341 @@ class SphericalCatan {
     this.scene.add(this.board);
     
     // Store vertices for later use
-    this.truncatedVertices = truncatedVertices;
+    this.truncatedVertices = [];
+    const newPositions = geometry.attributes.position;
+    for (let i = 0; i < newPositions.count; i++) {
+      this.truncatedVertices.push(new this.THREE.Vector3(
+        newPositions.getX(i),
+        newPositions.getY(i),
+        newPositions.getZ(i)
+      ));
+    }
     
     // Add edges and faces visualization
     this.addEdgeVisualization();
     this.addFaceVisualization();
+  }
+  
+  mergeCloseVertices(vertices, tolerance = 0.001) {
+    const mergedVertices = [];
+    const vertexMap = new Map(); // Maps original index to merged index
+    
+    for (let i = 0; i < vertices.length; i++) {
+      const v1 = vertices[i];
+      let foundMatch = false;
+      
+      // Check if this vertex is close to any existing merged vertex
+      for (let j = 0; j < mergedVertices.length; j++) {
+        const v2 = mergedVertices[j];
+        if (v1.distanceTo(v2) < tolerance) {
+          vertexMap.set(i, j);
+          foundMatch = true;
+          break;
+        }
+      }
+      
+      // If no match found, add as new vertex
+      if (!foundMatch) {
+        vertexMap.set(i, mergedVertices.length);
+        mergedVertices.push(v1.clone());
+      }
+    }
+    
+    return {
+      vertices: mergedVertices,
+      vertexMap: vertexMap
+    };
+  }
+  
+  truncateIcosahedron(geometry) {
+    // Get the original vertices and faces
+    const positions = geometry.attributes.position;
+    const originalVertices = [];
+    const originalFaces = [];
+    
+    // Store original vertices
+    for (let i = 0; i < positions.count; i++) {
+      originalVertices.push(new this.THREE.Vector3(
+        positions.getX(i),
+        positions.getY(i),
+        positions.getZ(i)
+      ));
+    }
+    
+    // Create indices for the original icosahedron faces
+    // Each face is a triangle with 3 vertices
+    for (let i = 0; i < positions.count; i += 3) {
+      originalFaces.push([i, i + 1, i + 2]);
+    }
+    
+    // Create new vertices for the truncated icosahedron
+    const newVertices = [];
+    const newFaces = [];
+    
+    // First pass: create hexagons from original faces
+    for (let i = 0; i < originalFaces.length; i++) {
+      const face = originalFaces[i];
+      const v1 = originalVertices[face[0]];
+      const v2 = originalVertices[face[1]];
+      const v3 = originalVertices[face[2]];
+      
+      const hexagonVertices = [
+        this.truncatePoint(v1, v2, 0.33333),
+        this.truncatePoint(v2, v1, 0.33333),
+        this.truncatePoint(v2, v3, 0.33333),
+        this.truncatePoint(v3, v2, 0.33333),
+        this.truncatePoint(v3, v1, 0.33333),
+        this.truncatePoint(v1, v3, 0.33333)
+      ];
+      
+      const hexagonIndices = hexagonVertices.map(v => {
+        const index = newVertices.length;
+        newVertices.push(v);
+        return index;
+      });
+      
+      newFaces.push({
+        type: 'hexagon',
+        vertices: hexagonIndices,
+        indices: this.createPolygonIndices(hexagonIndices)
+      });
+    }
+    
+    console.log('=== Hexagon Creation ===');
+    console.log(`Created ${newFaces.length} hexagons`);
+    console.log(`Total hexagon vertices before merging: ${newVertices.length}`);
+    
+    // Merge close vertices
+    const { vertices: mergedVertices, vertexMap } = this.mergeCloseVertices(newVertices);
+    console.log(`Total vertices after merging: ${mergedVertices.length}`);
+    
+    // Update face indices to use merged vertices
+    newFaces.forEach(face => {
+      face.vertices = face.vertices.map(v => vertexMap.get(v));
+      face.indices = this.createPolygonIndices(face.vertices);
+    });
+    
+    // Second pass: create edges between hexagon vertices
+    const edges = new Set();
+    const CORRECT_EDGE_LENGTH = 1.7525; // Length of edge in truncated icosahedron
+    const TOLERANCE = 0.01;
+    
+    // Helper function to get the other vertex of an edge
+    const getOtherVertex = (edge, vertex) => {
+      const [v1, v2] = edge.split(',').map(Number);
+      return v1 === vertex ? v2 : v1;
+    };
+    
+    console.log('\n=== Edge Creation ===');
+    console.log(`Looking for edges with length ${CORRECT_EDGE_LENGTH} ± ${TOLERANCE}`);
+    
+    // First, find all edges between hexagon vertices
+    const allEdges = new Set();
+    for (let i = 0; i < mergedVertices.length; i++) {
+      for (let j = i + 1; j < mergedVertices.length; j++) {
+        const v1 = mergedVertices[i];
+        const v2 = mergedVertices[j];
+        const distance = v1.distanceTo(v2);
+        
+        if (Math.abs(distance - CORRECT_EDGE_LENGTH) < TOLERANCE) {
+          const edgeKey = `${Math.min(i, j)},${Math.max(i, j)}`;
+          allEdges.add(edgeKey);
+        }
+      }
+    }
+    
+    console.log(`Found ${allEdges.size} total edges between hexagon vertices`);
+    
+    // Find edges that are shared between hexagons
+    const sharedEdges = new Set();
+    for (const edge of allEdges) {
+      const [v1, v2] = edge.split(',').map(Number);
+      let sharedCount = 0;
+      
+      // Count how many hexagons share this edge
+      for (const face of newFaces) {
+        if (face.type === 'hexagon') {
+          const vertices = face.vertices;
+          // Check if both vertices of the edge are in this hexagon
+          if (vertices.includes(v1) && vertices.includes(v2)) {
+            sharedCount++;
+          }
+        }
+      }
+      
+      // If edge is shared by two hexagons, add it to shared edges
+      if (sharedCount === 2) {
+        sharedEdges.add(edge);
+      }
+    }
+    
+    console.log(`Found ${sharedEdges.size} edges shared between hexagons`);
+    
+    // The remaining edges should form our pentagons
+    const pentagonEdges = new Set([...allEdges].filter(edge => !sharedEdges.has(edge)));
+    console.log(`Found ${pentagonEdges.size} edges for pentagons`);
+    
+    // Group pentagon edges by vertex
+    const vertexEdges = new Map();
+    for (const edge of pentagonEdges) {
+      const [v1, v2] = edge.split(',').map(Number);
+      
+      // Add edge to v1's list
+      if (!vertexEdges.has(v1)) vertexEdges.set(v1, new Set());
+      vertexEdges.get(v1).add(edge);
+      
+      // Add edge to v2's list
+      if (!vertexEdges.has(v2)) vertexEdges.set(v2, new Set());
+      vertexEdges.get(v2).add(edge);
+    }
+    
+    // Find cycles of 5 edges to form pentagons
+    const processedEdges = new Set();
+    let pentagonCount = 0;
+    
+    // Try to find cycles starting from each edge
+    for (const startEdge of pentagonEdges) {
+      if (processedEdges.has(startEdge)) continue;
+      
+      const [startV1, startV2] = startEdge.split(',').map(Number);
+      const cycle = [startEdge];
+      let currentVertex = startV2;
+      let foundCycle = false;
+      
+      // Try to find a cycle of 5 edges
+      while (cycle.length < 5) {
+        const connectedEdges = vertexEdges.get(currentVertex);
+        if (!connectedEdges) break;
+        
+        let nextEdge = null;
+        // Find an unprocessed edge that connects to current vertex
+        for (const edge of connectedEdges) {
+          if (!processedEdges.has(edge) && !cycle.includes(edge)) {
+            nextEdge = edge;
+            break;
+          }
+        }
+        
+        if (!nextEdge) break;
+        
+        cycle.push(nextEdge);
+        currentVertex = getOtherVertex(nextEdge, currentVertex);
+        
+        // If we've reached the start vertex, we found a cycle
+        if (currentVertex === startV1) {
+          foundCycle = true;
+          break;
+        }
+      }
+      
+      // If we found a cycle of 5 edges, create a pentagon
+      if (foundCycle && cycle.length === 5) {
+        console.log(`\n=== Found pentagon! ===`);
+        console.log(`Edges: ${cycle.join(' -> ')}`);
+        
+        pentagonCount++;
+        
+        // Create vertices for the pentagon
+        const faceVertices = [];
+        currentVertex = startV1;
+        
+        // Add vertices in order around the cycle
+        for (const edge of cycle) {
+          faceVertices.push(currentVertex);
+          currentVertex = getOtherVertex(edge, currentVertex);
+          processedEdges.add(edge);
+        }
+        
+        newFaces.push({
+          type: 'pentagon',
+          vertices: faceVertices,
+          indices: this.createPolygonIndices(faceVertices)
+        });
+      }
+    }
+    
+    console.log('\n=== Final Results ===');
+    console.log(`Found ${pentagonCount} pentagons`);
+    console.log('Processed edges:', Array.from(processedEdges).join('\n'));
+    
+    // Update the geometry with merged vertices
+    const newPositions = new Float32Array(mergedVertices.length * 3);
+    for (let i = 0; i < mergedVertices.length; i++) {
+      newPositions[i * 3] = mergedVertices[i].x;
+      newPositions[i * 3 + 1] = mergedVertices[i].y;
+      newPositions[i * 3 + 2] = mergedVertices[i].z;
+    }
+    
+    // Create indices for all faces
+    const allIndices = [];
+    newFaces.forEach(face => {
+      allIndices.push(...face.indices);
+    });
+    
+    geometry.setAttribute('position', new this.THREE.BufferAttribute(newPositions, 3));
+    geometry.setIndex(allIndices);
+    geometry.computeVertexNormals();
+    
+    // Store vertices and faces for later use
+    this.truncatedVertices = mergedVertices;
+    this.faces = newFaces;
+    
+    // Log counts for debugging
+    console.log(`Created ${newFaces.filter(f => f.type === 'pentagon').length} pentagons`);
+    console.log(`Created ${newFaces.filter(f => f.type === 'hexagon').length} hexagons`);
+    console.log(`Total faces: ${newFaces.length}`);
+  }
+  
+  createPolygonIndices(vertices) {
+    const indices = [];
+    // Create triangles for the polygon using fan triangulation
+    for (let i = 1; i < vertices.length - 1; i++) {
+      indices.push(vertices[0], vertices[i], vertices[i + 1]);
+    }
+    // Add the final triangle to close the polygon
+    indices.push(vertices[0], vertices[vertices.length - 1], vertices[1]);
+    return indices;
+  }
+  
+  findNeighbors(vertices, vertex) {
+    const neighbors = [];
+    const EDGE_LENGTH = 4; // Length of icosahedron edge
+    const TOLERANCE = 0.1;
+    
+    for (const v of vertices) {
+      if (v !== vertex) {
+        const distance = v.distanceTo(vertex);
+        if (Math.abs(distance - EDGE_LENGTH) < TOLERANCE) {
+          neighbors.push(v);
+        }
+      }
+    }
+    
+    // Sort neighbors clockwise around the vertex
+    if (neighbors.length >= 5) {
+      const normal = vertex.clone().normalize();
+      const firstNeighbor = neighbors[0];
+      const tangent = firstNeighbor.clone().sub(vertex).normalize();
+      const bitangent = normal.clone().cross(tangent);
+      
+      neighbors.sort((a, b) => {
+        const aDir = a.clone().sub(vertex);
+        const bDir = b.clone().sub(vertex);
+        const aAngle = Math.atan2(aDir.dot(bitangent), aDir.dot(tangent));
+        const bAngle = Math.atan2(bDir.dot(bitangent), bDir.dot(tangent));
+        return aAngle - bAngle;
+      });
+    }
+    
+    return neighbors;
+  }
+  
+  truncatePoint(v1, v2, ratio = 0.33) {
+    const direction = v2.clone().sub(v1);
+    const distance = direction.length();
+    return v1.clone().add(
+      direction.normalize().multiplyScalar(distance * ratio)
+    );
   }
   
   addEdgeVisualization() {
@@ -400,6 +470,12 @@ class SphericalCatan {
               isSelected: false
             };
             
+            // Add vertex labels
+            const label1 = this.createVertexLabel(i, v1);
+            const label2 = this.createVertexLabel(j, v2);
+            edge.add(label1);
+            edge.add(label2);
+            
             this.scene.add(edge);
             this.edgeObjects.push(edge);
             addedEdges.add(edgeKey);
@@ -407,6 +483,34 @@ class SphericalCatan {
         }
       }
     }
+  }
+  
+  createVertexLabel(vertexIndex, position) {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 64;
+    canvas.height = 64;
+    
+    // Draw the vertex index
+    context.fillStyle = 'white';
+    context.font = 'bold 24px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(vertexIndex.toString(), 32, 32);
+    
+    const texture = new this.THREE.CanvasTexture(canvas);
+    const material = new this.THREE.SpriteMaterial({ 
+      map: texture,
+      transparent: true,
+      depthTest: false
+    });
+    
+    const sprite = new this.THREE.Sprite(material);
+    sprite.scale.set(0.3, 0.3, 1);
+    sprite.position.copy(position.normalize().multiplyScalar(5.2));
+    sprite.visible = false; // Hidden by default
+    
+    return sprite;
   }
   
   addFaceVisualization() {
@@ -420,18 +524,20 @@ class SphericalCatan {
       desert: 0xD2B48C    // Tan for desert
     };
     
-    // Shuffle resource assignments
-    const resourceTypes = [
-      'wheat', 'wheat', 'wheat', 'wheat',
-      'wood', 'wood', 'wood', 'wood',
-      'sheep', 'sheep', 'sheep', 'sheep',
-      'ore', 'ore', 'ore',
-      'brick', 'brick', 'brick',
-      'desert'
+    // Create resource distribution for all 32 tiles (12 pentagons + 20 hexagons)
+    const allResources = [
+      // 6 of each resource (30 resource tiles total)
+      'wheat', 'wheat', 'wheat', 'wheat', 'wheat', 'wheat',
+      'wood', 'wood', 'wood', 'wood', 'wood', 'wood',
+      'sheep', 'sheep', 'sheep', 'sheep', 'sheep', 'sheep',
+      'ore', 'ore', 'ore', 'ore', 'ore', 'ore',
+      'brick', 'brick', 'brick', 'brick', 'brick', 'brick',
+      // 2 deserts
+      'desert', 'desert'
     ];
-    this.shuffle(resourceTypes);
+    this.shuffle(allResources);
     
-    let hexagonCount = 0;
+    let tileCount = 0;
     this.faceObjects = [];  // Store faces for interaction
     
     // Create meshes for each face using the pre-identified faces
@@ -440,62 +546,49 @@ class SphericalCatan {
       
       // Calculate center
       const center = new this.THREE.Vector3();
-      vertices.forEach(v => center.add(v));
+      vertices.forEach(v => center.add(v.clone())); // Clone vertices before adding
       center.divideScalar(vertices.length);
       
       // Create geometry
       const geometry = new this.THREE.BufferGeometry();
       
-      // Create triangles using fan triangulation from center
-      const positions = new Float32Array((vertices.length + 2) * 3);
+      // Create positions array with center and vertices
+      const positions = [];
       
-      // Add center
-      positions[0] = center.x;
-      positions[1] = center.y;
-      positions[2] = center.z;
+      // Add center point
+      positions.push(center.x, center.y, center.z);
       
-      // Add vertices
-      vertices.forEach((vertex, i) => {
-        positions[(i + 1) * 3] = vertex.x;
-        positions[(i + 1) * 3 + 1] = vertex.y;
-        positions[(i + 1) * 3 + 2] = vertex.z;
+      // Add all vertices
+      vertices.forEach(vertex => {
+        positions.push(vertex.x, vertex.y, vertex.z);
       });
-      
-      // Add first vertex again to close the fan
-      positions[(vertices.length + 1) * 3] = vertices[0].x;
-      positions[(vertices.length + 1) * 3 + 1] = vertices[0].y;
-      positions[(vertices.length + 1) * 3 + 2] = vertices[0].z;
       
       // Create indices for triangle fan
       const indices = [];
       for (let i = 1; i <= vertices.length; i++) {
-        indices.push(0, i, i + 1);
+        indices.push(0); // Center point
+        indices.push(i); // Current vertex
+        indices.push(i % vertices.length + 1); // Next vertex (wrapping around)
       }
       
-      geometry.setAttribute('position', new this.THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('position', new this.THREE.Float32BufferAttribute(positions, 3));
       geometry.setIndex(indices);
       geometry.computeVertexNormals();
       
-      // Assign resource type and color
-      let resourceType;
-      if (face.type === 'pentagon') {
-        // Pentagons are always desert
-        resourceType = 'desert';
-      } else {
-        // Hexagons get other resources
-        if (hexagonCount < resourceTypes.length) {
-          resourceType = resourceTypes[hexagonCount];
-          hexagonCount++;
-        } else {
-          resourceType = 'desert'; // Fallback
-        }
+      // Assign resource type from shuffled resources
+      const resourceType = allResources[tileCount];
+      const color = resourceColors[resourceType];
+      
+      if (!color) {
+        console.error('Invalid resource type:', resourceType);
       }
       
       const material = new this.THREE.MeshPhongMaterial({
-        color: resourceColors[resourceType],
+        color: color || 0x808080, // Fallback to gray if color is undefined
         transparent: true,
-        opacity: 0.7,
-        side: this.THREE.DoubleSide
+        opacity: face.type === 'pentagon' ? 0.8 : 0.7,
+        side: this.THREE.DoubleSide,
+        shininess: face.type === 'pentagon' ? 30 : 10
       });
       
       const mesh = new this.THREE.Mesh(geometry, material);
@@ -504,14 +597,23 @@ class SphericalCatan {
         faceIndex: faceIndex,
         faceType: face.type,
         resourceType: resourceType,
-        defaultColor: resourceColors[resourceType],
+        defaultColor: color || 0x808080,
         isSelected: false,
-        vertices: face.vertices
+        vertices: face.vertices,
+        vertexCount: vertices.length
       };
       
       this.scene.add(mesh);
       this.faceObjects.push(mesh);
+      
+      // Log face creation for debugging
+      console.log(`Created ${face.type} face ${faceIndex} with resource ${resourceType} (color: ${color ? color.toString(16) : 'undefined'})`);
+      tileCount++;
     });
+    
+    // Verify counts
+    console.log(`Created ${tileCount} total tiles`);
+    console.log(`Total faces: ${this.faceObjects.length}`);
   }
   
   addDiceValueIndicators() {
@@ -614,6 +716,12 @@ class SphericalCatan {
           hoveredEdge.material.color.setHex(hoveredEdge.userData.defaultColor);
         }
         hoveredEdge.material.linewidth = 2;
+        // Hide vertex labels
+        hoveredEdge.children.forEach(child => {
+          if (child instanceof this.THREE.Sprite) {
+            child.visible = false;
+          }
+        });
         hoveredEdge = null;
       }
       
@@ -632,7 +740,18 @@ class SphericalCatan {
           edge.material.color.setHex(0x00FF00); // Hover color: green
         }
         edge.material.linewidth = 3;
+        // Show vertex labels
+        edge.children.forEach(child => {
+          if (child instanceof this.THREE.Sprite) {
+            child.visible = true;
+          }
+        });
         hoveredEdge = edge;
+        
+        // Log vertex information
+        console.log(`Edge ${edge.userData.v1}-${edge.userData.v2}`);
+        console.log(`Vertex ${edge.userData.v1} position:`, this.truncatedVertices[edge.userData.v1]);
+        console.log(`Vertex ${edge.userData.v2} position:`, this.truncatedVertices[edge.userData.v2]);
       }
     });
     
