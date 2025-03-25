@@ -56,6 +56,37 @@ class SphericalCatan {
     this.edges = [];
     this.vertices = [];
     
+    // Add UI container
+    this.uiContainer = document.createElement('div');
+    this.uiContainer.style.position = 'absolute';
+    this.uiContainer.style.top = '20px';
+    this.uiContainer.style.right = '20px';
+    this.uiContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    this.uiContainer.style.padding = '10px';
+    this.uiContainer.style.borderRadius = '5px';
+    this.uiContainer.style.color = 'white';
+    this.uiContainer.style.display = 'none';
+    this.container.appendChild(this.uiContainer);
+    
+    // Add building state
+    this.buildings = {
+      roads: new Map(), // edgeKey -> mesh
+      settlements: new Map(), // vertexIndex -> mesh
+      cities: new Map() // vertexIndex -> mesh
+    };
+    
+    // Add player state
+    this.currentPlayer = {
+      color: 0x0000FF, // Blue
+      resources: {
+        wood: 100,
+        brick: 100,
+        wheat: 100,
+        sheep: 100,
+        ore: 100
+      }
+    };
+    
     // Initialize the game
     this.init();
     
@@ -107,9 +138,10 @@ class SphericalCatan {
       ));
     }
     
-    // Add edges and faces visualization
+    // Add edges, faces, and vertices visualization
     this.addEdgeVisualization();
     this.addFaceVisualization();
+    this.addVertexVisualization();
   }
   
   mergeCloseVertices(vertices, tolerance = 0.001) {
@@ -673,11 +705,18 @@ class SphericalCatan {
         canvas.width = 64;
         canvas.height = 64;
         
-        // Draw the number with a black background
+        // Clear the canvas first
+        context.clearRect(0, 0, 64, 64);
+        
+        // Draw a circular black background
+        context.beginPath();
+        context.arc(32, 32, 24, 0, Math.PI * 2); // Smaller circle for more padding
         context.fillStyle = 'black';
-        context.fillRect(0, 0, 64, 64);
+        context.fill();
+        
+        // Draw the number
         context.fillStyle = 'white';
-        context.font = 'bold 48px Arial';
+        context.font = 'bold 36px Arial'; // Larger font to fill the space
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.fillText(diceNumbers[diceIndex].toString(), 32, 32);
@@ -686,7 +725,8 @@ class SphericalCatan {
         const texture = new this.THREE.CanvasTexture(canvas);
         const numberMaterial = new this.THREE.MeshBasicMaterial({
           map: texture,
-          side: this.THREE.DoubleSide
+          side: this.THREE.DoubleSide,
+          transparent: true
         });
         
         // Create mesh for the number
@@ -774,13 +814,106 @@ class SphericalCatan {
     const mouse = new this.THREE.Vector2();
     let hoveredEdge = null;
     let hoveredFace = null;
+    let hoveredVertex = null;
     let selectedFace = null;
+    let selectedEdge = null;
+    let selectedVertex = null;
+    
+    // Constants for colors and sizes
+    const HOVER_COLOR = 0x00FF00;  // Green for hover
+    const SELECTED_COLOR = 0x00FF00;  // Green for selected
+    const DEFAULT_COLOR = 0xFFFFFF;  // White for default
     
     // Update mouse position
     const updateMousePosition = (event) => {
       const rect = this.renderer.domElement.getBoundingClientRect();
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    };
+    
+    // Helper function to reset hover states
+    const resetHoverStates = () => {
+      if (hoveredFace && (!selectedFace || hoveredFace !== selectedFace)) {
+        hoveredFace = null;
+      }
+      if (hoveredEdge && (!selectedEdge || hoveredEdge !== selectedEdge)) {
+        hoveredEdge = null;
+      }
+      if (hoveredVertex && (!selectedVertex || hoveredVertex !== selectedVertex)) {
+        hoveredVertex = null;
+      }
+    };
+    
+    // Helper function to update edge appearance
+    const updateEdgeAppearance = (edge, isSelected, isHovered) => {
+      const geometry = edge.geometry;
+      const height = geometry.parameters.height;
+      geometry.dispose();
+      
+      let radius, color;
+      if (isSelected) {
+        radius = edge.userData.selectedRadius;
+        color = SELECTED_COLOR;
+      } else if (isHovered) {
+        radius = edge.userData.normalRadius * 1.5;
+        color = HOVER_COLOR;
+      } else {
+        radius = edge.userData.normalRadius;
+        color = edge.userData.defaultColor;
+      }
+      
+      const newGeometry = new this.THREE.CylinderGeometry(radius, radius, height, 8, 1);
+      newGeometry.translate(0, height / 2, 0);
+      edge.geometry = newGeometry;
+      edge.material.color.setHex(color);
+    };
+    
+    // Helper function to update vertex appearance
+    const updateVertexAppearance = (vertex, isSelected, isHovered) => {
+      const geometry = vertex.geometry;
+      geometry.dispose();
+      
+      let radius, color;
+      if (isSelected) {
+        radius = vertex.userData.selectedRadius;
+        color = SELECTED_COLOR;
+      } else if (isHovered) {
+        radius = vertex.userData.normalRadius * 1.5;
+        color = HOVER_COLOR;
+      } else {
+        radius = vertex.userData.normalRadius;
+        color = vertex.userData.defaultColor;
+      }
+      
+      const newGeometry = new this.THREE.SphereGeometry(radius, 32, 32); // Increased segments for smoother appearance
+      vertex.geometry = newGeometry;
+      vertex.material.color.setHex(color);
+    };
+    
+    // Helper function to update face appearance
+    const updateFaceAppearance = (face, isSelected, isHovered) => {
+      // Faces don't change appearance anymore
+      // This function is kept for consistency but doesn't do anything
+    };
+    
+    // Helper function to update edges of a face
+    const updateFaceEdges = (face, isSelected, isHovered) => {
+      const color = isSelected || isHovered ? HOVER_COLOR : DEFAULT_COLOR;
+      const radius = isSelected ? 0.06 : (isHovered ? 0.045 : 0.03);
+      
+      this.edgeObjects.forEach(edge => {
+        if (face.userData.vertices.includes(edge.userData.v1) && 
+            face.userData.vertices.includes(edge.userData.v2)) {
+          const geometry = edge.geometry;
+          const height = geometry.parameters.height;
+          geometry.dispose();
+          
+          const newGeometry = new this.THREE.CylinderGeometry(radius, radius, height, 8, 1);
+          newGeometry.translate(0, height / 2, 0);
+          edge.geometry = newGeometry;
+          edge.material.color.setHex(color);
+        }
+      });
     };
     
     // Handle mouse move for hover effect
@@ -790,263 +923,166 @@ class SphericalCatan {
       // Cast a ray
       raycaster.setFromCamera(mouse, this.camera);
       
-      // Adjust raycaster parameters to favor faces over edges
+      // Adjust raycaster parameters to favor faces over edges and vertices
       raycaster.params.Line.threshold = 0.05;
+      raycaster.params.Points.threshold = 0.1;
       
-      // Check for face intersections first
+      // Check for intersections in order of priority: faces > edges > vertices
       const faceIntersects = raycaster.intersectObjects(this.faceObjects);
-      
-      // Reset previous face hover state
-      if (hoveredFace && (!faceIntersects.length || faceIntersects[0].object !== hoveredFace)) {
-        // Reset edges of previous face if not the selected face
-        if (hoveredFace !== selectedFace) {
-          this.edgeObjects.forEach(edge => {
-            if (hoveredFace.userData.vertices.includes(edge.userData.v1) && 
-                hoveredFace.userData.vertices.includes(edge.userData.v2)) {
-              // Only reset if it's not part of the selected face
-              if (!selectedFace || 
-                 !(selectedFace.userData.vertices.includes(edge.userData.v1) && 
-                   selectedFace.userData.vertices.includes(edge.userData.v2))) {
-                // Reset to normal radius
-                const geometry = edge.geometry;
-                geometry.dispose();
-                const newGeometry = new this.THREE.CylinderGeometry(
-                  edge.userData.normalRadius,
-                  edge.userData.normalRadius,
-                  geometry.parameters.height,
-                  8, 1
-                );
-                newGeometry.translate(0, geometry.parameters.height / 2, 0);
-                edge.geometry = newGeometry;
-              }
-            }
-          });
-        }
-        hoveredFace = null;
-      }
-      
-      // Check for edge intersections
       const edgeIntersects = raycaster.intersectObjects(this.edgeObjects);
+      const vertexIntersects = raycaster.intersectObjects(this.vertexObjects);
       
-      // Reset previous edge hover state
-      if (hoveredEdge && (!edgeIntersects.length || edgeIntersects[0].object !== hoveredEdge)) {
-        // Only reset if not part of the selected face
-        if (!selectedFace || 
-            !(selectedFace.userData.vertices.includes(hoveredEdge.userData.v1) && 
-              selectedFace.userData.vertices.includes(hoveredEdge.userData.v2))) {
-          hoveredEdge.material.color.setHex(hoveredEdge.userData.defaultColor);
-          
-          // Reset to normal radius
-          const geometry = hoveredEdge.geometry;
-          geometry.dispose();
-          const newGeometry = new this.THREE.CylinderGeometry(
-            hoveredEdge.userData.normalRadius,
-            hoveredEdge.userData.normalRadius,
-            geometry.parameters.height,
-            8, 1
-          );
-          newGeometry.translate(0, geometry.parameters.height / 2, 0);
-          hoveredEdge.geometry = newGeometry;
+      // Reset only non-selected hover effects
+          this.edgeObjects.forEach(edge => {
+        if (!edge.userData.isSelected) {
+                const geometry = edge.geometry;
+          const height = geometry.parameters.height;
+                geometry.dispose();
+          const newGeometry = new this.THREE.CylinderGeometry(0.03, 0.03, height, 8, 1);
+          newGeometry.translate(0, height / 2, 0);
+                edge.geometry = newGeometry;
+          edge.material.color.setHex(DEFAULT_COLOR);
         }
-        hoveredEdge = null;
+      });
+      
+      // Only update the hovered vertex, not all vertices
+      let hoveredVertex = null;
+      if (vertexIntersects.length > 0) {
+        hoveredVertex = vertexIntersects[0].object;
+        if (!hoveredVertex.userData.isSelected) {
+          const geometry = hoveredVertex.geometry;
+          geometry.dispose();
+          const newGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+          hoveredVertex.geometry = newGeometry;
+          hoveredVertex.material.color.setHex(HOVER_COLOR);
+        }
       }
       
-      // Set new hover state - prioritize faces unless very close to an edge
-      if (faceIntersects.length > 0 && 
-          (!edgeIntersects.length || edgeIntersects[0].distance > faceIntersects[0].distance + 0.1)) {
-        const face = faceIntersects[0].object;
-        hoveredFace = face;
-        
-        // Highlight edges of the hovered face but don't override selected face edges
-        this.edgeObjects.forEach(edge => {
-          if (face.userData.vertices.includes(edge.userData.v1) && 
-              face.userData.vertices.includes(edge.userData.v2)) {
-            // Don't override selected face edges
-            if (!selectedFace || 
-                !(selectedFace.userData.vertices.includes(edge.userData.v1) && 
-                  selectedFace.userData.vertices.includes(edge.userData.v2))) {
-              // Increase radius for highlight
-              const geometry = edge.geometry;
-              const height = geometry.parameters.height;
+      // Reset any previously hovered vertex that's not selected
+      this.vertexObjects.forEach(vertex => {
+        if (vertex !== hoveredVertex && !vertex.userData.isSelected) {
+          const geometry = vertex.geometry;
               geometry.dispose();
-              const newGeometry = new this.THREE.CylinderGeometry(
-                edge.userData.normalRadius * 1.5, // 50% wider for hover
-                edge.userData.normalRadius * 1.5,
-                height,
-                8, 1
-              );
-              newGeometry.translate(0, height / 2, 0);
-              edge.geometry = newGeometry;
-            }
-          }
-        });
-      } else if (edgeIntersects.length > 0) {
+          const newGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+          vertex.geometry = newGeometry;
+          vertex.material.color.setHex(DEFAULT_COLOR);
+        }
+      });
+      
+      // Set new hover state based on priority
+      if (faceIntersects.length > 0 && 
+          (!edgeIntersects.length || edgeIntersects[0].distance > faceIntersects[0].distance + 0.1) &&
+          (!vertexIntersects.length || vertexIntersects[0].distance > faceIntersects[0].distance + 0.1)) {
+        const face = faceIntersects[0].object;
+        updateFaceEdges(face, false, true);
+      } else if (edgeIntersects.length > 0 && 
+                 (!vertexIntersects.length || edgeIntersects[0].distance > vertexIntersects[0].distance + 0.1)) {
         const edge = edgeIntersects[0].object;
-        
-        // Only change appearance if not part of the selected face
-        if (!selectedFace || 
-            !(selectedFace.userData.vertices.includes(edge.userData.v1) && 
-              selectedFace.userData.vertices.includes(edge.userData.v2))) {
-          edge.material.color.setHex(0x00FF00); // Hover color: green
-          
-          // Increase radius for highlight
+        if (!edge.userData.isSelected) {
           const geometry = edge.geometry;
           const height = geometry.parameters.height;
           geometry.dispose();
-          const newGeometry = new this.THREE.CylinderGeometry(
-            edge.userData.normalRadius * 1.5, // 50% wider for hover
-            edge.userData.normalRadius * 1.5,
-            height,
-            8, 1
-          );
+          const newGeometry = new this.THREE.CylinderGeometry(0.045, 0.045, height, 8, 1);
           newGeometry.translate(0, height / 2, 0);
           edge.geometry = newGeometry;
+          edge.material.color.setHex(HOVER_COLOR);
         }
-        
-        hoveredEdge = edge;
+      } else if (vertexIntersects.length > 0) {
+        const vertex = vertexIntersects[0].object;
+        if (!vertex.userData.isSelected) {
+          const geometry = vertex.geometry;
+          geometry.dispose();
+          const newGeometry = new this.THREE.SphereGeometry(0.08, 16, 16);
+          vertex.geometry = newGeometry;
+          vertex.material.color.setHex(HOVER_COLOR);
         
         // Log vertex information
-        console.log(`Edge ${edge.userData.v1}-${edge.userData.v2}`);
-        console.log(`Vertex ${edge.userData.v1} position:`, this.truncatedVertices[edge.userData.v1]);
-        console.log(`Vertex ${edge.userData.v2} position:`, this.truncatedVertices[edge.userData.v2]);
+          const pos = this.truncatedVertices[vertex.userData.vertexIndex];
+          console.log(`Vertex ${vertex.userData.vertexIndex}:`);
+          console.log(`  Position: (${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)})`);
+        }
       }
     });
     
-    // Handle click - similar changes to prioritize faces
+    // Handle click
     this.container.addEventListener('click', (event) => {
       updateMousePosition(event);
       
       // Cast a ray
       raycaster.setFromCamera(mouse, this.camera);
       
-      // Check for face intersections first
+      // Check for intersections in order of priority
       const faceIntersects = raycaster.intersectObjects(this.faceObjects);
       const edgeIntersects = raycaster.intersectObjects(this.edgeObjects);
+      const vertexIntersects = raycaster.intersectObjects(this.vertexObjects);
       
-      // Prioritize faces unless very close to an edge
-      if (faceIntersects.length > 0 && 
-          (!edgeIntersects.length || edgeIntersects[0].distance > faceIntersects[0].distance + 0.1)) {
-        const face = faceIntersects[0].object;
-        
-        // Reset all edges to normal state
+      // Reset all highlights first
         this.edgeObjects.forEach(edge => {
-          edge.material.color.setHex(edge.userData.defaultColor);
-          
-          // Reset to normal radius if not part of the newly selected face
-          if (!face.userData.vertices.includes(edge.userData.v1) || 
-              !face.userData.vertices.includes(edge.userData.v2)) {
+        edge.userData.isSelected = false;
             const geometry = edge.geometry;
             const height = geometry.parameters.height;
             geometry.dispose();
-            const newGeometry = new this.THREE.CylinderGeometry(
-              edge.userData.normalRadius,
-              edge.userData.normalRadius,
-              height,
-              8, 1
-            );
+        const newGeometry = new this.THREE.CylinderGeometry(0.03, 0.03, height, 8, 1);
             newGeometry.translate(0, height / 2, 0);
             edge.geometry = newGeometry;
-          }
-        });
-        
-        // Clear previous selected face
-        if (selectedFace && selectedFace !== face) {
-          selectedFace.userData.isSelected = false;
-        }
-        
-        // Toggle selected state
-        face.userData.isSelected = !face.userData.isSelected;
-        
-        // Update selected face reference
-        if (face.userData.isSelected) {
-          selectedFace = face;
-          
-          // Highlight edges of the selected face with bold white lines
+        edge.material.color.setHex(DEFAULT_COLOR);
+      });
+      
+      // Reset all vertices first
+      this.vertexObjects.forEach(vertex => {
+        vertex.userData.isSelected = false;
+        const geometry = vertex.geometry;
+        geometry.dispose();
+        const newGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+        vertex.geometry = newGeometry;
+        vertex.material.color.setHex(DEFAULT_COLOR);
+      });
+      
+      // Handle selection based on priority
+      if (faceIntersects.length > 0 && 
+          (!edgeIntersects.length || edgeIntersects[0].distance > faceIntersects[0].distance + 0.1) &&
+          (!vertexIntersects.length || vertexIntersects[0].distance > faceIntersects[0].distance + 0.1)) {
+        const face = faceIntersects[0].object;
+        // Mark all edges of the face as selected
           this.edgeObjects.forEach(edge => {
             if (face.userData.vertices.includes(edge.userData.v1) && 
                 face.userData.vertices.includes(edge.userData.v2)) {
-              // Make edges bolder by increasing cylinder radius
-              const geometry = edge.geometry;
-              const height = geometry.parameters.height;
-              geometry.dispose();
-              const newGeometry = new this.THREE.CylinderGeometry(
-                edge.userData.selectedRadius, // Use the selected radius
-                edge.userData.selectedRadius,
-                height,
-                8, 1
-              );
-              newGeometry.translate(0, height / 2, 0);
-              edge.geometry = newGeometry;
-              
-              // Ensure they're white and render on top
-              edge.material.color.setHex(0x2222FF);
-              edge.renderOrder = 2;
-            }
-          });
-        } else {
-          selectedFace = null;
-        }
+            edge.userData.isSelected = true;
+          }
+        });
+        updateFaceEdges(face, true, false);
         
         // Log face information
         console.log(`Face ${face.userData.faceIndex}:`);
         console.log(`  Type: ${face.userData.faceType}`);
         console.log(`  Resource: ${face.userData.resourceType}`);
         console.log(`  Vertices: [${face.userData.vertices.join(', ')}]`);
-      } else if (edgeIntersects.length > 0) {
+      } else if (edgeIntersects.length > 0 && 
+                 (!vertexIntersects.length || edgeIntersects[0].distance > vertexIntersects[0].distance + 0.1)) {
         const edge = edgeIntersects[0].object;
-        
-        // Reset all edges that are not part of the selected face
-        this.edgeObjects.forEach(e => {
-          if (!selectedFace || 
-              !(selectedFace.userData.vertices.includes(e.userData.v1) && 
-                selectedFace.userData.vertices.includes(e.userData.v2))) {
-            e.material.color.setHex(e.userData.defaultColor);
-            
-            // Reset to normal radius
-            const geometry = e.geometry;
-            const height = geometry.parameters.height;
-            geometry.dispose();
-            const newGeometry = new this.THREE.CylinderGeometry(
-              e.userData.normalRadius,
-              e.userData.normalRadius,
-              height,
-              8, 1
-            );
-            newGeometry.translate(0, height / 2, 0);
-            e.geometry = newGeometry;
-          }
-        });
-        
-        // Toggle selected state only if not part of selected face
-        if (!selectedFace || 
-            !(selectedFace.userData.vertices.includes(edge.userData.v1) && 
-              selectedFace.userData.vertices.includes(edge.userData.v2))) {
-          edge.userData.isSelected = !edge.userData.isSelected;
-          edge.material.color.setHex(edge.userData.isSelected ? 0xFF0000 : edge.userData.defaultColor);
-          
-          // Update radius based on selection state
+        edge.userData.isSelected = true;
           const geometry = edge.geometry;
           const height = geometry.parameters.height;
           geometry.dispose();
-          const newGeometry = new this.THREE.CylinderGeometry(
-            edge.userData.isSelected ? edge.userData.selectedRadius : edge.userData.normalRadius,
-            edge.userData.isSelected ? edge.userData.selectedRadius : edge.userData.normalRadius,
-            height,
-            8, 1
-          );
+        const newGeometry = new this.THREE.CylinderGeometry(0.06, 0.06, height, 8, 1);
           newGeometry.translate(0, height / 2, 0);
           edge.geometry = newGeometry;
-        }
+        edge.material.color.setHex(HOVER_COLOR);
         
-        // Log edge information
-        const v1 = edge.userData.v1;
-        const v2 = edge.userData.v2;
-        const pos1 = this.truncatedVertices[v1];
-        const pos2 = this.truncatedVertices[v2];
-        console.log(`Edge ${v1}-${v2}:`);
-        console.log(`  v1(${pos1.x.toFixed(3)}, ${pos1.y.toFixed(3)}, ${pos1.z.toFixed(3)})`);
-        console.log(`  v2(${pos2.x.toFixed(3)}, ${pos2.y.toFixed(3)}, ${pos2.z.toFixed(3)})`);
-        console.log(`  distance: ${pos1.distanceTo(pos2).toFixed(3)}`);
+        // Show build options for edge
+        const edgeKey = `${edge.userData.v1},${edge.userData.v2}`;
+        this.showBuildOptions('edge', edgeKey);
+      } else if (vertexIntersects.length > 0) {
+        const vertex = vertexIntersects[0].object;
+        vertex.userData.isSelected = true;
+        const geometry = vertex.geometry;
+        geometry.dispose();
+        const newGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+        vertex.geometry = newGeometry;
+        vertex.material.color.setHex(HOVER_COLOR);
+        
+        // Show build options for vertex
+        this.showBuildOptions('vertex', vertex.userData.vertexIndex);
       }
     });
   }
@@ -1108,107 +1144,200 @@ class SphericalCatan {
   }
   
   // Methods for building roads, settlements, cities, etc.
-  buildRoad(edgeKey, playerId) {
-    const edge = this.edges.find(e => e.key === edgeKey);
-    if (edge && edge.owner === null) {
-      // Check if player has required resources
-      const player = this.players[playerId];
-      if (player.resources.wood >= 1 && player.resources.brick >= 1) {
-        // Check if player has a connected road or settlement
-        // Logic here would be more complex in a full implementation
-        
-        // Deduct resources
-        player.resources.wood -= 1;
-        player.resources.brick -= 1;
-        
-        // Assign ownership
-        edge.owner = playerId;
-        
-        // Create visual representation
-        this.createRoadVisual(edge, playerId);
-        
-        return true;
-      }
+  buildRoad(edgeKey) {
+    const edge = this.edgeObjects.find(e => 
+      `${e.userData.v1},${e.userData.v2}` === edgeKey || 
+      `${e.userData.v2},${e.userData.v1}` === edgeKey
+    );
+    
+    if (edge && !this.buildings.roads.has(edgeKey)) {
+      // Get the vertices of the edge
+      const v1 = this.truncatedVertices[edge.userData.v1];
+      const v2 = this.truncatedVertices[edge.userData.v2];
+      
+      // Calculate road position and direction
+      const roadStart = v1.clone().multiplyScalar(1.01);  // Slightly elevated
+      const roadEnd = v2.clone().multiplyScalar(1.01);    // Slightly elevated
+      const roadCenter = roadStart.clone().add(roadEnd).multiplyScalar(0.5);
+      const roadLength = roadStart.distanceTo(roadEnd);
+      const roadDirection = roadEnd.clone().sub(roadStart).normalize();
+      
+      // Create road geometry - note the swapped dimensions to align with direction
+      const roadGeometry = new this.THREE.BoxGeometry(0.05, roadLength, 0.1);
+      const roadMaterial = new this.THREE.MeshBasicMaterial({ color: this.currentPlayer.color });
+      const road = new this.THREE.Mesh(roadGeometry, roadMaterial);
+      
+      // Position road at center
+      road.position.copy(roadCenter);
+      
+      // Orient road along the edge
+      // We want to rotate from the Y axis (BoxGeometry's default orientation)
+      // to our edge direction
+      const yAxis = new this.THREE.Vector3(0, 1, 0);
+      road.quaternion.setFromUnitVectors(yAxis, roadDirection);
+      
+      this.scene.add(road);
+      this.buildings.roads.set(edgeKey, road);
+      
+      // Deduct resources
+      this.currentPlayer.resources.wood--;
+      this.currentPlayer.resources.brick--;
+      
+      this.hideBuildOptions();
     }
-    return false;
   }
   
-  createRoadVisual(edge, playerId) {
-    // Create a visual for the road on the edge
-    const positions = this.board.geometry.attributes.position;
-    const start = new this.THREE.Vector3(
-      positions.getX(edge.vertices[0]),
-      positions.getY(edge.vertices[0]),
-      positions.getZ(edge.vertices[0])
-    ).normalize().multiplyScalar(5.1);
+  buildSettlement(vertexIndex) {
+    if (!this.buildings.settlements.has(vertexIndex)) {
+      const position = this.truncatedVertices[vertexIndex].clone().multiplyScalar(1.01); // Move very slightly outward
+      const settlement = this.createSettlementVisual(vertexIndex, position);
+      this.scene.add(settlement);
+      this.buildings.settlements.set(vertexIndex, settlement);
+      
+      // Deduct resources
+      this.currentPlayer.resources.wood--;
+      this.currentPlayer.resources.brick--;
+      this.currentPlayer.resources.wheat--;
+      this.currentPlayer.resources.sheep--;
+      
+      this.hideBuildOptions();
+    }
+  }
+  
+  createSettlementVisual(vertexIndex, position) {
+    // Simple house shape
+    const houseGeometry = new this.THREE.BoxGeometry(0.15, 0.15, 0.15); // Slightly smaller
+    const roofGeometry = new this.THREE.ConeGeometry(0.12, 0.15, 4);
     
-    const end = new this.THREE.Vector3(
-      positions.getX(edge.vertices[1]),
-      positions.getY(edge.vertices[1]),
-      positions.getZ(edge.vertices[1])
-    ).normalize().multiplyScalar(5.1);
+    const houseMaterial = new this.THREE.MeshBasicMaterial({ color: this.currentPlayer.color });
+    const roofMaterial = new this.THREE.MeshBasicMaterial({ color: 0x8B4513 }); // Brown roof
     
-    const roadGeometry = new this.THREE.BufferGeometry().setFromPoints([start, end]);
-    const roadMaterial = new this.THREE.LineBasicMaterial({ 
-      color: this.getPlayerColor(playerId),
-      linewidth: 3 
+    const house = new this.THREE.Mesh(houseGeometry, houseMaterial);
+    const roof = new this.THREE.Mesh(roofGeometry, roofMaterial);
+    
+    house.position.copy(position);
+    roof.position.copy(position).add(new this.THREE.Vector3(0, 0.1, 0));
+    
+    const group = new this.THREE.Group();
+    group.add(house);
+    group.add(roof);
+    
+    return group;
+  }
+  
+  createCityVisual(vertexIndex, position) {
+    // Larger, rounder building
+    const baseGeometry = new this.THREE.CylinderGeometry(0.12, 0.12, 0.2, 8); // Slightly smaller
+    const roofGeometry = new this.THREE.ConeGeometry(0.15, 0.2, 8);
+    
+    const baseMaterial = new this.THREE.MeshBasicMaterial({ color: this.currentPlayer.color });
+    const roofMaterial = new this.THREE.MeshBasicMaterial({ color: 0x8B4513 }); // Brown roof
+    
+    const base = new this.THREE.Mesh(baseGeometry, baseMaterial);
+    const roof = new this.THREE.Mesh(roofGeometry, roofMaterial);
+    
+    base.position.copy(position);
+    roof.position.copy(position).add(new this.THREE.Vector3(0, 0.15, 0));
+    
+    const group = new this.THREE.Group();
+    group.add(base);
+    group.add(roof);
+    
+    return group;
+  }
+  
+  showBuildOptions(type, data) {
+    this.uiContainer.innerHTML = '';
+    this.uiContainer.style.display = 'block';
+    
+    switch(type) {
+      case 'edge':
+        const buildRoadButton = document.createElement('button');
+        buildRoadButton.textContent = 'Build Road';
+        buildRoadButton.onclick = () => this.buildRoad(data);
+        this.uiContainer.appendChild(buildRoadButton);
+        break;
+        
+      case 'vertex':
+        const vertexIndex = data;
+        if (this.buildings.settlements.has(vertexIndex)) {
+          const upgradeCityButton = document.createElement('button');
+          upgradeCityButton.textContent = 'Upgrade to City';
+          upgradeCityButton.onclick = () => this.upgradeToCity(vertexIndex);
+          this.uiContainer.appendChild(upgradeCityButton);
+        } else {
+          const buildSettlementButton = document.createElement('button');
+          buildSettlementButton.textContent = 'Build Settlement';
+          buildSettlementButton.onclick = () => this.buildSettlement(vertexIndex);
+          this.uiContainer.appendChild(buildSettlementButton);
+        }
+        break;
+    }
+  }
+  
+  hideBuildOptions() {
+    this.uiContainer.style.display = 'none';
+  }
+  
+  upgradeToCity(vertexIndex) {
+    if (this.buildings.settlements.has(vertexIndex) && !this.buildings.cities.has(vertexIndex)) {
+      // Remove settlement
+      const settlement = this.buildings.settlements.get(vertexIndex);
+      this.scene.remove(settlement);
+      this.buildings.settlements.delete(vertexIndex);
+      
+      // Add city
+      const position = this.truncatedVertices[vertexIndex].clone().multiplyScalar(1.01); // Move very slightly outward
+      const city = this.createCityVisual(vertexIndex, position);
+      this.scene.add(city);
+      this.buildings.cities.set(vertexIndex, city);
+      
+      // Deduct resources
+      this.currentPlayer.resources.wheat -= 2;
+      this.currentPlayer.resources.ore -= 3;
+      
+      this.hideBuildOptions();
+    }
+  }
+  
+  addVertexVisualization() {
+    // Store vertices for interaction
+    this.vertexObjects = [];
+    
+    // Create slightly elevated vertices to ensure they appear above faces
+    const elevationFactor = 1.01; // 1% higher than faces
+    
+    // Create vertex spheres
+    this.truncatedVertices.forEach((vertex, index) => {
+      const elevatedVertex = vertex.clone().multiplyScalar(elevationFactor);
+      
+      // Create a small sphere for the vertex
+      const vertexGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+      const vertexMaterial = new this.THREE.MeshBasicMaterial({
+        color: 0xFFFFFF,
+        opacity: 1.0,
+        transparent: false,
+        depthWrite: true,
+        depthTest: true
+      });
+      
+      const vertexMesh = new this.THREE.Mesh(vertexGeometry, vertexMaterial);
+      vertexMesh.position.copy(elevatedVertex);
+      vertexMesh.renderOrder = 3; // Increased render order to ensure it's above everything
+      
+      // Store original info for selection and highlighting
+      vertexMesh.userData = {
+        type: 'vertex',
+        vertexIndex: index,
+        defaultColor: 0xFFFFFF,
+        isSelected: false,
+        normalRadius: 0.08,
+        selectedRadius: 0.12
+      };
+      
+      this.scene.add(vertexMesh);
+      this.vertexObjects.push(vertexMesh);
     });
-    
-    const road = new this.THREE.Line(roadGeometry, roadMaterial);
-    this.scene.add(road);
-  }
-  
-  buildSettlement(vertexIndex, playerId) {
-    const vertex = this.vertices.find(v => v.index === vertexIndex);
-    
-    if (vertex && vertex.owner === null) {
-      // Check if player has required resources
-      const player = this.players[playerId];
-      if (player.resources.wood >= 1 && player.resources.brick >= 1 && 
-          player.resources.wheat >= 1 && player.resources.sheep >= 1) {
-        
-        // Check if there are no adjacent settlements (distance rule)
-        // This would be more complex in a full implementation
-        
-        // Deduct resources
-        player.resources.wood -= 1;
-        player.resources.brick -= 1;
-        player.resources.wheat -= 1;
-        player.resources.sheep -= 1;
-        
-        // Assign ownership
-        vertex.owner = playerId;
-        vertex.level = 1;
-        
-        // Create visual representation
-        this.createSettlementVisual(vertex, playerId);
-        
-        return true;
-      }
-    }
-    return false;
-  }
-  
-  createSettlementVisual(vertex, playerId) {
-    // Create a visual for the settlement at the vertex
-    const positions = this.board.geometry.attributes.position;
-    const position = new this.THREE.Vector3(
-      positions.getX(vertex.index),
-      positions.getY(vertex.index),
-      positions.getZ(vertex.index)
-    ).normalize().multiplyScalar(5.3);
-    
-    const settlementGeometry = new this.THREE.BoxGeometry(0.2, 0.2, 0.2);
-    const settlementMaterial = new this.THREE.MeshLambertMaterial({ color: this.getPlayerColor(playerId) });
-    const settlement = new this.THREE.Mesh(settlementGeometry, settlementMaterial);
-    
-    settlement.position.copy(position);
-    this.scene.add(settlement);
-  }
-  
-  getPlayerColor(playerId) {
-    const colors = [0xFF0000, 0x0000FF, 0x00FF00, 0xFFFF00];
-    return colors[playerId % colors.length];
   }
   
   // Add more game mechanics methods as needed
