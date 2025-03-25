@@ -156,6 +156,47 @@ class SphericalCatan {
     this.uiContainer.style.display = 'none';
     this.container.appendChild(this.uiContainer);
     
+    // Add title
+    const titleContainer = document.createElement('div');
+    titleContainer.style.position = 'absolute';
+    titleContainer.style.top = '80px';
+    titleContainer.style.left = '50%';
+    titleContainer.style.transform = 'translateX(-50%)';
+    titleContainer.style.zIndex = '1000';
+    titleContainer.style.textAlign = 'center';
+    
+    const title = document.createElement('h1');
+    title.textContent = 'CATAN 3D';
+    title.style.margin = '0';
+    title.style.padding = '10px 30px';
+    title.style.fontFamily = '"Arial Black", "Helvetica Black", sans-serif';
+    title.style.fontSize = '48px';
+    title.style.fontWeight = '900';
+    title.style.color = '#fff';
+    title.style.textShadow = '2px 2px 4px rgba(0,0,0,0.5)';
+    title.style.letterSpacing = '2px';
+    title.style.background = 'linear-gradient(45deg, #8B4513, #D2B48C)';  // Saddle brown to tan
+    title.style.borderRadius = '8px';
+    title.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+    title.style.border = '2px solid rgba(255,255,255,0.1)';
+    
+    // Add a subtle animation
+    title.style.animation = 'titleGlow 2s ease-in-out infinite';
+    
+    // Add the animation keyframes
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes titleGlow {
+        0% { box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        50% { box-shadow: 0 4px 15px rgba(139,69,19,0.3); }  // Saddle brown glow
+        100% { box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    titleContainer.appendChild(title);
+    this.container.appendChild(titleContainer);
+    
     // Add building state
     this.buildings = {
       roads: new Map(), // edgeKey -> mesh
