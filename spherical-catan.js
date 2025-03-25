@@ -14,6 +14,94 @@ class SphericalCatan {
     this.CORRECT_EDGE_LENGTH = 1.7525; // Edge length for the truncated icosahedron
     this.EDGE_TOLERANCE = 0.01; // Tolerance for edge length comparison
     
+    // Constants for elevation
+    this.ELEVATION = {
+      roads: 1.01,    // How far roads stick out from surface
+      buildings: 1.01, // How far settlements/cities stick out
+      edges: 1.005    // How far edges stick out
+    };
+    
+    // Constants for edge geometry and interaction
+    this.EDGE_GEOMETRY = {
+      visual: {
+        default: {
+          radius: 0.06,
+          segments: 8
+        },
+        hover: {
+          radius: 0.09
+        },
+        selected: {
+          radius: 0.06
+        }
+      },
+      interaction: {
+        threshold: 0.2  // Raycaster threshold for edge detection
+      }
+    };
+    
+    // Constants for vertex geometry
+    this.VERTEX_GEOMETRY = {
+      visual: {
+        default: {
+          radius: 0.2,
+          height: 0.02,    // Very thin cylinder
+          segments: 32     // Segments for smooth circle
+        },
+        hover: {
+          radius: 0.3,
+          height: 0.02
+        },
+        selected: {
+          radius: 0.3,
+          height: 0.02
+        }
+      },
+      interaction: {
+        threshold: 0.2
+      }
+    };
+    
+    // Constants for road geometry
+    this.ROAD_GEOMETRY = {
+      width: 0.1,    // X dimension
+      height: 0.1,    // Z dimension
+      segments: 8     // Segments for cylinder edges
+    };
+    
+    // Constants for settlement geometry
+    this.SETTLEMENT_GEOMETRY = {
+      house: {
+        size: 0.25,        // Size of the cube
+        segments: 1        // Segments for the cube
+      },
+      roof: {
+        radius: 0.18,      // Base radius of cone
+        height: 0.25,      // Height of cone
+        segments: 4        // Segments for cone
+      },
+      offset: {
+        roof: 0.25         // How high the roof sits above house
+      }
+    };
+    
+    // Constants for city geometry
+    this.CITY_GEOMETRY = {
+      base: {
+        radius: 0.25,      // Radius of cylinder
+        height: 0.4,       // Height of cylinder
+        segments: 8        // Segments for cylinder
+      },
+      roof: {
+        radius: 0.25,      // Base radius of cone
+        height: 0.4,       // Height of cone
+        segments: 8        // Segments for cone
+      },
+      offset: {
+        roof: 0.4        // How high the roof sits above base
+      }
+    };
+    
     // Store THREE reference
     this.THREE = THREE;
     
@@ -488,9 +576,8 @@ class SphericalCatan {
           
           if (!addedEdges.has(edgeKey)) {
             // Create slightly elevated vertices to ensure edges appear above faces
-            const elevationFactor = 1.005; // 0.5% higher than faces
-            const elevatedV1 = v1.clone().multiplyScalar(elevationFactor);
-            const elevatedV2 = v2.clone().multiplyScalar(elevationFactor);
+            const elevatedV1 = v1.clone().multiplyScalar(this.ELEVATION.edges);
+            const elevatedV2 = v2.clone().multiplyScalar(this.ELEVATION.edges);
             
             // Create a cylinder between the two points to represent the edge
             // Direction from v1 to v2
@@ -498,11 +585,12 @@ class SphericalCatan {
             const length = direction.length();
             
             // Create a cylinder with small radius (thin line)
-            // The cylinder's default orientation is along the Y axis
-            const normalEdgeRadius = 0.03; // Normal width
-            const selectedEdgeRadius = 0.06; // Width when selected
             const edgeGeometry = new this.THREE.CylinderGeometry(
-              normalEdgeRadius, normalEdgeRadius, length, 8, 1
+              this.EDGE_GEOMETRY.visual.default.radius,
+              this.EDGE_GEOMETRY.visual.default.radius,
+              length,
+              this.EDGE_GEOMETRY.visual.default.segments,
+              1
             );
             
             // Shift the cylinder so its center is at the origin and it extends along the Y axis
@@ -525,8 +613,8 @@ class SphericalCatan {
               v2: j,
               defaultColor: 0xFFFFFF,
               isSelected: false,
-              normalRadius: normalEdgeRadius,
-              selectedRadius: selectedEdgeRadius
+              normalRadius: this.EDGE_GEOMETRY.visual.default.radius,
+              selectedRadius: this.EDGE_GEOMETRY.visual.selected.radius
             };
             
             // Position and orient the cylinder
@@ -824,82 +912,12 @@ class SphericalCatan {
     const SELECTED_COLOR = 0x00FF00;  // Green for selected
     const DEFAULT_COLOR = 0xFFFFFF;  // White for default
     
-    // Update mouse position
-    const updateMousePosition = (event) => {
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    };
-    
-    // Helper function to reset hover states
-    const resetHoverStates = () => {
-      if (hoveredFace && (!selectedFace || hoveredFace !== selectedFace)) {
-        hoveredFace = null;
-      }
-      if (hoveredEdge && (!selectedEdge || hoveredEdge !== selectedEdge)) {
-        hoveredEdge = null;
-      }
-      if (hoveredVertex && (!selectedVertex || hoveredVertex !== selectedVertex)) {
-        hoveredVertex = null;
-      }
-    };
-    
-    // Helper function to update edge appearance
-    const updateEdgeAppearance = (edge, isSelected, isHovered) => {
-      const geometry = edge.geometry;
-      const height = geometry.parameters.height;
-      geometry.dispose();
-      
-      let radius, color;
-      if (isSelected) {
-        radius = edge.userData.selectedRadius;
-        color = SELECTED_COLOR;
-      } else if (isHovered) {
-        radius = edge.userData.normalRadius * 1.5;
-        color = HOVER_COLOR;
-      } else {
-        radius = edge.userData.normalRadius;
-        color = edge.userData.defaultColor;
-      }
-      
-      const newGeometry = new this.THREE.CylinderGeometry(radius, radius, height, 8, 1);
-      newGeometry.translate(0, height / 2, 0);
-      edge.geometry = newGeometry;
-      edge.material.color.setHex(color);
-    };
-    
-    // Helper function to update vertex appearance
-    const updateVertexAppearance = (vertex, isSelected, isHovered) => {
-      const geometry = vertex.geometry;
-      geometry.dispose();
-      
-      let radius, color;
-      if (isSelected) {
-        radius = vertex.userData.selectedRadius;
-        color = SELECTED_COLOR;
-      } else if (isHovered) {
-        radius = vertex.userData.normalRadius * 1.5;
-        color = HOVER_COLOR;
-      } else {
-        radius = vertex.userData.normalRadius;
-        color = vertex.userData.defaultColor;
-      }
-      
-      const newGeometry = new this.THREE.SphereGeometry(radius, 32, 32); // Increased segments for smoother appearance
-      vertex.geometry = newGeometry;
-      vertex.material.color.setHex(color);
-    };
-    
-    // Helper function to update face appearance
-    const updateFaceAppearance = (face, isSelected, isHovered) => {
-      // Faces don't change appearance anymore
-      // This function is kept for consistency but doesn't do anything
-    };
-    
     // Helper function to update edges of a face
     const updateFaceEdges = (face, isSelected, isHovered) => {
       const color = isSelected || isHovered ? HOVER_COLOR : DEFAULT_COLOR;
-      const radius = isSelected ? 0.06 : (isHovered ? 0.045 : 0.03);
+      const radius = isSelected ? 
+        this.EDGE_GEOMETRY.visual.selected.radius : 
+        (isHovered ? this.EDGE_GEOMETRY.visual.hover.radius : this.EDGE_GEOMETRY.visual.default.radius);
       
       this.edgeObjects.forEach(edge => {
         if (face.userData.vertices.includes(edge.userData.v1) && 
@@ -908,12 +926,25 @@ class SphericalCatan {
           const height = geometry.parameters.height;
           geometry.dispose();
           
-          const newGeometry = new this.THREE.CylinderGeometry(radius, radius, height, 8, 1);
+          const newGeometry = new this.THREE.CylinderGeometry(
+            radius,
+            radius,
+            height,
+            this.EDGE_GEOMETRY.visual.default.segments,
+            1
+          );
           newGeometry.translate(0, height / 2, 0);
           edge.geometry = newGeometry;
           edge.material.color.setHex(color);
         }
       });
+    };
+    
+    // Update mouse position
+    const updateMousePosition = (event) => {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     };
     
     // Handle mouse move for hover effect
@@ -924,8 +955,8 @@ class SphericalCatan {
       raycaster.setFromCamera(mouse, this.camera);
       
       // Adjust raycaster parameters to favor faces over edges and vertices
-      raycaster.params.Line.threshold = 0.05;
-      raycaster.params.Points.threshold = 0.1;
+      raycaster.params.Line.threshold = this.EDGE_GEOMETRY.interaction.threshold;
+      raycaster.params.Points.threshold = 0.2;
       
       // Check for intersections in order of priority: faces > edges > vertices
       const faceIntersects = raycaster.intersectObjects(this.faceObjects);
@@ -933,38 +964,37 @@ class SphericalCatan {
       const vertexIntersects = raycaster.intersectObjects(this.vertexObjects);
       
       // Reset only non-selected hover effects
-          this.edgeObjects.forEach(edge => {
+      this.edgeObjects.forEach(edge => {
         if (!edge.userData.isSelected) {
-                const geometry = edge.geometry;
+          const geometry = edge.geometry;
           const height = geometry.parameters.height;
-                geometry.dispose();
-          const newGeometry = new this.THREE.CylinderGeometry(0.03, 0.03, height, 8, 1);
+          geometry.dispose();
+          const newGeometry = new this.THREE.CylinderGeometry(
+            this.EDGE_GEOMETRY.visual.default.radius,
+            this.EDGE_GEOMETRY.visual.default.radius,
+            height,
+            this.EDGE_GEOMETRY.visual.default.segments,
+            1
+          );
           newGeometry.translate(0, height / 2, 0);
-                edge.geometry = newGeometry;
+          edge.geometry = newGeometry;
           edge.material.color.setHex(DEFAULT_COLOR);
         }
       });
-      
-      // Only update the hovered vertex, not all vertices
-      let hoveredVertex = null;
-      if (vertexIntersects.length > 0) {
-        hoveredVertex = vertexIntersects[0].object;
-        if (!hoveredVertex.userData.isSelected) {
-          const geometry = hoveredVertex.geometry;
-          geometry.dispose();
-          const newGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
-          hoveredVertex.geometry = newGeometry;
-          hoveredVertex.material.color.setHex(HOVER_COLOR);
-        }
-      }
       
       // Reset any previously hovered vertex that's not selected
       this.vertexObjects.forEach(vertex => {
         if (vertex !== hoveredVertex && !vertex.userData.isSelected) {
           const geometry = vertex.geometry;
-              geometry.dispose();
-          const newGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+          geometry.dispose();
+          const newGeometry = new this.THREE.CylinderGeometry(
+            this.VERTEX_GEOMETRY.visual.default.radius,
+            this.VERTEX_GEOMETRY.visual.default.radius,
+            this.VERTEX_GEOMETRY.visual.default.height,
+            this.VERTEX_GEOMETRY.visual.default.segments
+          );
           vertex.geometry = newGeometry;
+          vertex.rotation.copy(vertex.userData.originalRotation);
           vertex.material.color.setHex(DEFAULT_COLOR);
         }
       });
@@ -982,7 +1012,13 @@ class SphericalCatan {
           const geometry = edge.geometry;
           const height = geometry.parameters.height;
           geometry.dispose();
-          const newGeometry = new this.THREE.CylinderGeometry(0.045, 0.045, height, 8, 1);
+          const newGeometry = new this.THREE.CylinderGeometry(
+            this.EDGE_GEOMETRY.visual.hover.radius,
+            this.EDGE_GEOMETRY.visual.hover.radius,
+            height,
+            this.EDGE_GEOMETRY.visual.default.segments,
+            1
+          );
           newGeometry.translate(0, height / 2, 0);
           edge.geometry = newGeometry;
           edge.material.color.setHex(HOVER_COLOR);
@@ -992,14 +1028,15 @@ class SphericalCatan {
         if (!vertex.userData.isSelected) {
           const geometry = vertex.geometry;
           geometry.dispose();
-          const newGeometry = new this.THREE.SphereGeometry(0.08, 16, 16);
+          const newGeometry = new this.THREE.CylinderGeometry(
+            this.VERTEX_GEOMETRY.visual.hover.radius,
+            this.VERTEX_GEOMETRY.visual.hover.radius,
+            this.VERTEX_GEOMETRY.visual.hover.height,
+            this.VERTEX_GEOMETRY.visual.default.segments
+          );
           vertex.geometry = newGeometry;
+          vertex.rotation.copy(vertex.userData.originalRotation);
           vertex.material.color.setHex(HOVER_COLOR);
-        
-        // Log vertex information
-          const pos = this.truncatedVertices[vertex.userData.vertexIndex];
-          console.log(`Vertex ${vertex.userData.vertexIndex}:`);
-          console.log(`  Position: (${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)})`);
         }
       }
     });
@@ -1011,20 +1048,30 @@ class SphericalCatan {
       // Cast a ray
       raycaster.setFromCamera(mouse, this.camera);
       
+      // Set the same increased thresholds for click events
+      raycaster.params.Line.threshold = this.EDGE_GEOMETRY.interaction.threshold;
+      raycaster.params.Points.threshold = 0.2;
+      
       // Check for intersections in order of priority
       const faceIntersects = raycaster.intersectObjects(this.faceObjects);
       const edgeIntersects = raycaster.intersectObjects(this.edgeObjects);
       const vertexIntersects = raycaster.intersectObjects(this.vertexObjects);
       
       // Reset all highlights first
-        this.edgeObjects.forEach(edge => {
+      this.edgeObjects.forEach(edge => {
         edge.userData.isSelected = false;
-            const geometry = edge.geometry;
-            const height = geometry.parameters.height;
-            geometry.dispose();
-        const newGeometry = new this.THREE.CylinderGeometry(0.03, 0.03, height, 8, 1);
-            newGeometry.translate(0, height / 2, 0);
-            edge.geometry = newGeometry;
+        const geometry = edge.geometry;
+        const height = geometry.parameters.height;
+        geometry.dispose();
+        const newGeometry = new this.THREE.CylinderGeometry(
+          this.EDGE_GEOMETRY.visual.default.radius,
+          this.EDGE_GEOMETRY.visual.default.radius,
+          height,
+          this.EDGE_GEOMETRY.visual.default.segments,
+          1
+        );
+        newGeometry.translate(0, height / 2, 0);
+        edge.geometry = newGeometry;
         edge.material.color.setHex(DEFAULT_COLOR);
       });
       
@@ -1033,8 +1080,14 @@ class SphericalCatan {
         vertex.userData.isSelected = false;
         const geometry = vertex.geometry;
         geometry.dispose();
-        const newGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+        const newGeometry = new this.THREE.CylinderGeometry(
+          this.VERTEX_GEOMETRY.visual.default.radius,
+          this.VERTEX_GEOMETRY.visual.default.radius,
+          this.VERTEX_GEOMETRY.visual.default.height,
+          this.VERTEX_GEOMETRY.visual.default.segments
+        );
         vertex.geometry = newGeometry;
+        vertex.rotation.copy(vertex.userData.originalRotation);
         vertex.material.color.setHex(DEFAULT_COLOR);
       });
       
@@ -1044,30 +1097,37 @@ class SphericalCatan {
           (!vertexIntersects.length || vertexIntersects[0].distance > faceIntersects[0].distance + 0.1)) {
         const face = faceIntersects[0].object;
         // Mark all edges of the face as selected
-          this.edgeObjects.forEach(edge => {
-            if (face.userData.vertices.includes(edge.userData.v1) && 
-                face.userData.vertices.includes(edge.userData.v2)) {
+        this.edgeObjects.forEach(edge => {
+          if (face.userData.vertices.includes(edge.userData.v1) && 
+              face.userData.vertices.includes(edge.userData.v2)) {
             edge.userData.isSelected = true;
           }
         });
         updateFaceEdges(face, true, false);
-        
-        // Log face information
-        console.log(`Face ${face.userData.faceIndex}:`);
-        console.log(`  Type: ${face.userData.faceType}`);
-        console.log(`  Resource: ${face.userData.resourceType}`);
-        console.log(`  Vertices: [${face.userData.vertices.join(', ')}]`);
+        selectedFace = face;
+        selectedEdge = null;
+        selectedVertex = null;
       } else if (edgeIntersects.length > 0 && 
                  (!vertexIntersects.length || edgeIntersects[0].distance > vertexIntersects[0].distance + 0.1)) {
         const edge = edgeIntersects[0].object;
         edge.userData.isSelected = true;
-          const geometry = edge.geometry;
-          const height = geometry.parameters.height;
-          geometry.dispose();
-        const newGeometry = new this.THREE.CylinderGeometry(0.06, 0.06, height, 8, 1);
-          newGeometry.translate(0, height / 2, 0);
-          edge.geometry = newGeometry;
-        edge.material.color.setHex(HOVER_COLOR);
+        const geometry = edge.geometry;
+        const height = geometry.parameters.height;
+        geometry.dispose();
+        const newGeometry = new this.THREE.CylinderGeometry(
+          this.EDGE_GEOMETRY.visual.selected.radius,
+          this.EDGE_GEOMETRY.visual.selected.radius,
+          height,
+          this.EDGE_GEOMETRY.visual.default.segments,
+          1
+        );
+        newGeometry.translate(0, height / 2, 0);
+        edge.geometry = newGeometry;
+        edge.material.color.setHex(SELECTED_COLOR);
+        
+        selectedEdge = edge;
+        selectedFace = null;
+        selectedVertex = null;
         
         // Show build options for edge
         const edgeKey = `${edge.userData.v1},${edge.userData.v2}`;
@@ -1077,9 +1137,19 @@ class SphericalCatan {
         vertex.userData.isSelected = true;
         const geometry = vertex.geometry;
         geometry.dispose();
-        const newGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+        const newGeometry = new this.THREE.CylinderGeometry(
+          this.VERTEX_GEOMETRY.visual.selected.radius,
+          this.VERTEX_GEOMETRY.visual.selected.radius,
+          this.VERTEX_GEOMETRY.visual.selected.height,
+          this.VERTEX_GEOMETRY.visual.default.segments
+        );
         vertex.geometry = newGeometry;
-        vertex.material.color.setHex(HOVER_COLOR);
+        vertex.rotation.copy(vertex.userData.originalRotation);
+        vertex.material.color.setHex(SELECTED_COLOR);
+        
+        selectedVertex = vertex;
+        selectedFace = null;
+        selectedEdge = null;
         
         // Show build options for vertex
         this.showBuildOptions('vertex', vertex.userData.vertexIndex);
@@ -1156,14 +1226,18 @@ class SphericalCatan {
       const v2 = this.truncatedVertices[edge.userData.v2];
       
       // Calculate road position and direction
-      const roadStart = v1.clone().multiplyScalar(1.01);  // Slightly elevated
-      const roadEnd = v2.clone().multiplyScalar(1.01);    // Slightly elevated
+      const roadStart = v1.clone().multiplyScalar(this.ELEVATION.roads);
+      const roadEnd = v2.clone().multiplyScalar(this.ELEVATION.roads);
       const roadCenter = roadStart.clone().add(roadEnd).multiplyScalar(0.5);
       const roadLength = roadStart.distanceTo(roadEnd);
       const roadDirection = roadEnd.clone().sub(roadStart).normalize();
       
       // Create road geometry - note the swapped dimensions to align with direction
-      const roadGeometry = new this.THREE.BoxGeometry(0.05, roadLength, 0.1);
+      const roadGeometry = new this.THREE.BoxGeometry(
+        this.ROAD_GEOMETRY.width,
+        roadLength,
+        this.ROAD_GEOMETRY.height
+      );
       const roadMaterial = new this.THREE.MeshBasicMaterial({ color: this.currentPlayer.color });
       const road = new this.THREE.Mesh(roadGeometry, roadMaterial);
       
@@ -1171,8 +1245,6 @@ class SphericalCatan {
       road.position.copy(roadCenter);
       
       // Orient road along the edge
-      // We want to rotate from the Y axis (BoxGeometry's default orientation)
-      // to our edge direction
       const yAxis = new this.THREE.Vector3(0, 1, 0);
       road.quaternion.setFromUnitVectors(yAxis, roadDirection);
       
@@ -1189,7 +1261,7 @@ class SphericalCatan {
   
   buildSettlement(vertexIndex) {
     if (!this.buildings.settlements.has(vertexIndex)) {
-      const position = this.truncatedVertices[vertexIndex].clone().multiplyScalar(1.01); // Move very slightly outward
+      const position = this.truncatedVertices[vertexIndex].clone().multiplyScalar(this.ELEVATION.buildings);
       const settlement = this.createSettlementVisual(vertexIndex, position);
       this.scene.add(settlement);
       this.buildings.settlements.set(vertexIndex, settlement);
@@ -1206,8 +1278,19 @@ class SphericalCatan {
   
   createSettlementVisual(vertexIndex, position) {
     // Simple house shape
-    const houseGeometry = new this.THREE.BoxGeometry(0.15, 0.15, 0.15); // Slightly smaller
-    const roofGeometry = new this.THREE.ConeGeometry(0.12, 0.15, 4);
+    const houseGeometry = new this.THREE.BoxGeometry(
+      this.SETTLEMENT_GEOMETRY.house.size,
+      this.SETTLEMENT_GEOMETRY.house.size,
+      this.SETTLEMENT_GEOMETRY.house.size,
+      this.SETTLEMENT_GEOMETRY.house.segments,
+      this.SETTLEMENT_GEOMETRY.house.segments,
+      this.SETTLEMENT_GEOMETRY.house.segments
+    );
+    const roofGeometry = new this.THREE.ConeGeometry(
+      this.SETTLEMENT_GEOMETRY.roof.radius,
+      this.SETTLEMENT_GEOMETRY.roof.height,
+      this.SETTLEMENT_GEOMETRY.roof.segments
+    );
     
     const houseMaterial = new this.THREE.MeshBasicMaterial({ color: this.currentPlayer.color });
     const roofMaterial = new this.THREE.MeshBasicMaterial({ color: 0x8B4513 }); // Brown roof
@@ -1216,7 +1299,7 @@ class SphericalCatan {
     const roof = new this.THREE.Mesh(roofGeometry, roofMaterial);
     
     house.position.copy(position);
-    roof.position.copy(position).add(new this.THREE.Vector3(0, 0.1, 0));
+    roof.position.copy(position).add(new this.THREE.Vector3(0, this.SETTLEMENT_GEOMETRY.offset.roof, 0));
     
     const group = new this.THREE.Group();
     group.add(house);
@@ -1227,8 +1310,17 @@ class SphericalCatan {
   
   createCityVisual(vertexIndex, position) {
     // Larger, rounder building
-    const baseGeometry = new this.THREE.CylinderGeometry(0.12, 0.12, 0.2, 8); // Slightly smaller
-    const roofGeometry = new this.THREE.ConeGeometry(0.15, 0.2, 8);
+    const baseGeometry = new this.THREE.CylinderGeometry(
+      this.CITY_GEOMETRY.base.radius,
+      this.CITY_GEOMETRY.base.radius,
+      this.CITY_GEOMETRY.base.height,
+      this.CITY_GEOMETRY.base.segments
+    );
+    const roofGeometry = new this.THREE.ConeGeometry(
+      this.CITY_GEOMETRY.roof.radius,
+      this.CITY_GEOMETRY.roof.height,
+      this.CITY_GEOMETRY.roof.segments
+    );
     
     const baseMaterial = new this.THREE.MeshBasicMaterial({ color: this.currentPlayer.color });
     const roofMaterial = new this.THREE.MeshBasicMaterial({ color: 0x8B4513 }); // Brown roof
@@ -1237,7 +1329,7 @@ class SphericalCatan {
     const roof = new this.THREE.Mesh(roofGeometry, roofMaterial);
     
     base.position.copy(position);
-    roof.position.copy(position).add(new this.THREE.Vector3(0, 0.15, 0));
+    roof.position.copy(position).add(new this.THREE.Vector3(0, this.CITY_GEOMETRY.offset.roof, 0));
     
     const group = new this.THREE.Group();
     group.add(base);
@@ -1250,29 +1342,163 @@ class SphericalCatan {
     this.uiContainer.innerHTML = '';
     this.uiContainer.style.display = 'block';
     
+    // Center the container
+    this.uiContainer.style.left = '50%';
+    this.uiContainer.style.transform = 'translateX(-50%)';
+    
+    // Add a title
+    const title = document.createElement('h3');
+    title.style.margin = '0 0 10px 0';
+    title.style.color = '#fff';
+    title.style.fontSize = '16px';
+    title.style.borderBottom = '1px solid rgba(255,255,255,0.2)';
+    title.style.paddingBottom = '5px';
+    
+    // Create a container for the content
+    const content = document.createElement('div');
+    content.style.display = 'flex';
+    content.style.flexDirection = 'column';
+    content.style.gap = '8px';
+    
+    // Resource colors and icons
+    const resourceStyles = {
+      wood: { color: '#8B4513', icon: '🌳' },
+      brick: { color: '#D32F2F', icon: '🧱' },
+      wheat: { color: '#FFD700', icon: '🌾' },
+      sheep: { color: '#81C784', icon: '🐑' },
+      ore: { color: '#757575', icon: '⛏️' }
+    };
+    
+    // Helper function to create a button with resource costs
+    const createButton = (text, onClick, costs = null) => {
+      const buttonContainer = document.createElement('div');
+      buttonContainer.style.display = 'flex';
+      buttonContainer.style.flexDirection = 'column';
+      buttonContainer.style.gap = '4px';
+      
+      const button = document.createElement('button');
+      button.textContent = text;
+      button.style.padding = '8px 12px';
+      button.style.border = 'none';
+      button.style.borderRadius = '4px';
+      button.style.backgroundColor = '#4CAF50';
+      button.style.color = 'white';
+      button.style.cursor = 'pointer';
+      button.style.fontSize = '14px';
+      button.style.transition = 'background-color 0.2s';
+      
+      button.onmouseover = () => button.style.backgroundColor = '#45a049';
+      button.onmouseout = () => button.style.backgroundColor = '#4CAF50';
+      
+      button.onclick = onClick;
+      
+      if (costs) {
+        const costsDiv = document.createElement('div');
+        costsDiv.style.fontSize = '12px';
+        costsDiv.style.color = '#aaa';
+        costsDiv.style.display = 'flex';
+        costsDiv.style.flexWrap = 'wrap';
+        costsDiv.style.gap = '8px';
+        costsDiv.style.justifyContent = 'center';
+        costsDiv.style.marginBottom = '8px';
+        
+        Object.entries(costs).forEach(([resource, amount]) => {
+          const costItem = document.createElement('div');
+          costItem.style.display = 'flex';
+          costItem.style.alignItems = 'center';
+          costItem.style.gap = '4px';
+          costItem.style.padding = '2px 6px';
+          costItem.style.borderRadius = '3px';
+          costItem.style.backgroundColor = `${resourceStyles[resource].color}33`; // Add transparency
+          
+          const icon = document.createElement('span');
+          icon.textContent = resourceStyles[resource].icon;
+          icon.style.fontSize = '14px';
+          
+          const amountText = document.createElement('span');
+          amountText.textContent = amount;
+          amountText.style.color = resourceStyles[resource].color;
+          amountText.style.fontWeight = 'bold';
+          
+          costItem.appendChild(icon);
+          costItem.appendChild(amountText);
+          costsDiv.appendChild(costItem);
+        });
+        
+        buttonContainer.appendChild(costsDiv);
+      }
+      
+      buttonContainer.appendChild(button);
+      return buttonContainer;
+    };
+    
     switch(type) {
       case 'edge':
-        const buildRoadButton = document.createElement('button');
-        buildRoadButton.textContent = 'Build Road';
-        buildRoadButton.onclick = () => this.buildRoad(data);
-        this.uiContainer.appendChild(buildRoadButton);
+        title.textContent = 'Build Road';
+        content.appendChild(createButton(
+          'Build Road',
+          () => this.buildRoad(data),
+          {
+            wood: 1,
+            brick: 1
+          }
+        ));
         break;
         
       case 'vertex':
         const vertexIndex = data;
         if (this.buildings.settlements.has(vertexIndex)) {
-          const upgradeCityButton = document.createElement('button');
-          upgradeCityButton.textContent = 'Upgrade to City';
-          upgradeCityButton.onclick = () => this.upgradeToCity(vertexIndex);
-          this.uiContainer.appendChild(upgradeCityButton);
+          title.textContent = 'Upgrade to City';
+          content.appendChild(createButton(
+            'Upgrade to City',
+            () => this.upgradeToCity(vertexIndex),
+            {
+              wheat: 2,
+              ore: 3
+            }
+          ));
         } else {
-          const buildSettlementButton = document.createElement('button');
-          buildSettlementButton.textContent = 'Build Settlement';
-          buildSettlementButton.onclick = () => this.buildSettlement(vertexIndex);
-          this.uiContainer.appendChild(buildSettlementButton);
+          title.textContent = 'Build Settlement';
+          content.appendChild(createButton(
+            'Build Settlement',
+            () => this.buildSettlement(vertexIndex),
+            {
+              wood: 1,
+              brick: 1,
+              wheat: 1,
+              sheep: 1
+            }
+          ));
         }
         break;
     }
+    
+    // Add close button
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '×';
+    closeButton.style.position = 'absolute';
+    closeButton.style.top = '5px';
+    closeButton.style.right = '5px';
+    closeButton.style.background = 'none';
+    closeButton.style.border = 'none';
+    closeButton.style.color = '#aaa';
+    closeButton.style.fontSize = '20px';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.padding = '0 5px';
+    closeButton.onclick = () => this.hideBuildOptions();
+    
+    // Update container styles
+    this.uiContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    this.uiContainer.style.padding = '15px';
+    this.uiContainer.style.borderRadius = '8px';
+    this.uiContainer.style.minWidth = '200px';
+    this.uiContainer.style.position = 'relative';
+    this.uiContainer.style.top = '20px';
+    
+    // Add all elements to container
+    this.uiContainer.appendChild(closeButton);
+    this.uiContainer.appendChild(title);
+    this.uiContainer.appendChild(content);
   }
   
   hideBuildOptions() {
@@ -1287,7 +1513,7 @@ class SphericalCatan {
       this.buildings.settlements.delete(vertexIndex);
       
       // Add city
-      const position = this.truncatedVertices[vertexIndex].clone().multiplyScalar(1.01); // Move very slightly outward
+      const position = this.truncatedVertices[vertexIndex].clone().multiplyScalar(this.ELEVATION.buildings);
       const city = this.createCityVisual(vertexIndex, position);
       this.scene.add(city);
       this.buildings.cities.set(vertexIndex, city);
@@ -1305,14 +1531,20 @@ class SphericalCatan {
     this.vertexObjects = [];
     
     // Create slightly elevated vertices to ensure they appear above faces
-    const elevationFactor = 1.01; // 1% higher than faces
+    const elevationFactor = 1.01;
     
-    // Create vertex spheres
+    // Create vertex cylinders
     this.truncatedVertices.forEach((vertex, index) => {
       const elevatedVertex = vertex.clone().multiplyScalar(elevationFactor);
       
-      // Create a small sphere for the vertex
-      const vertexGeometry = new this.THREE.SphereGeometry(0.08, 32, 32);
+      // Create a flat cylinder for the vertex
+      const vertexGeometry = new this.THREE.CylinderGeometry(
+        this.VERTEX_GEOMETRY.visual.default.radius,
+        this.VERTEX_GEOMETRY.visual.default.radius,
+        this.VERTEX_GEOMETRY.visual.default.height,
+        this.VERTEX_GEOMETRY.visual.default.segments
+      );
+      
       const vertexMaterial = new this.THREE.MeshBasicMaterial({
         color: 0xFFFFFF,
         opacity: 1.0,
@@ -1323,7 +1555,13 @@ class SphericalCatan {
       
       const vertexMesh = new this.THREE.Mesh(vertexGeometry, vertexMaterial);
       vertexMesh.position.copy(elevatedVertex);
-      vertexMesh.renderOrder = 3; // Increased render order to ensure it's above everything
+      
+      // Make the cylinder face parallel to the surface
+      vertexMesh.lookAt(new this.THREE.Vector3(0, 0, 0));
+      // Rotate 90 degrees around the local X axis to make the cylinder parallel to the surface
+      vertexMesh.rotateX(Math.PI / 2);
+      
+      vertexMesh.renderOrder = 3;
       
       // Store original info for selection and highlighting
       vertexMesh.userData = {
@@ -1331,8 +1569,9 @@ class SphericalCatan {
         vertexIndex: index,
         defaultColor: 0xFFFFFF,
         isSelected: false,
-        normalRadius: 0.08,
-        selectedRadius: 0.12
+        normalRadius: this.VERTEX_GEOMETRY.visual.default.radius,
+        selectedRadius: this.VERTEX_GEOMETRY.visual.selected.radius,
+        originalRotation: vertexMesh.rotation.clone() // Store the original rotation
       };
       
       this.scene.add(vertexMesh);
